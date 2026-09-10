@@ -1,0 +1,333 @@
+import { prisma } from "../lib/prisma";
+import { ReportKey } from "../constants/enums";
+import { sumEstimatedHours } from "../utils/projectHours";
+
+export interface ReportFilters {
+  dateFrom?: string;
+  dateTo?: string;
+  clientId?: number;
+  projectId?: number;
+  departmentId?: number;
+  userId?: number;
+  status?: string;
+}
+
+function toIsoDate(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+function dateRangeWhere(filters: ReportFilters) {
+  const where: any = {};
+  if (filters.dateFrom || filters.dateTo) {
+    where.gte = filters.dateFrom ? new Date(filters.dateFrom) : undefined;
+    where.lte = filters.dateTo ? new Date(filters.dateTo) : undefined;
+  }
+  return Object.keys(where).length ? where : undefined;
+}
+
+export async function getReportData(reportKey: ReportKey, filters: ReportFilters) {
+  switch (reportKey) {
+    case "timesheet-summary": {
+      const entries = await prisma.timesheetEntry.findMany({
+        where: {
+          entryDate: dateRangeWhere(filters),
+          projectTask: { projectId: filters.projectId, project: { clientId: filters.clientId } },
+          timesheet: {
+            userId: filters.userId,
+            status: filters.status,
+            user: { departmentId: filters.departmentId },
+          },
+        },
+        include: { projectTask: { include: { project: { include: { client: true } } } }, timesheet: { include: { user: true } } },
+        orderBy: { entryDate: "desc" },
+      });
+      return entries.map((e) => ({
+        employeeId: e.timesheet.user.employeeId,
+        employee: e.timesheet.user.name,
+        client: e.projectTask.project.client.name,
+        project: e.projectTask.project.name,
+        task: e.projectTask.name,
+        date: toIsoDate(e.entryDate),
+        hours: e.hours,
+        status: e.timesheet.status,
+        notes: e.notes ?? "",
+      }));
+    }
+
+    case "project-utilization": {
+      const projects = await prisma.project.findMany({
+        where: { id: filters.projectId, clientId: filters.clientId },
+        include: { client: true, tasks: { include: { timesheetEntries: true } } },
+      });
+      return projects.map((p) => {
+        const budgetHours = sumEstimatedHours(p.tasks);
+        const loggedHours = p.tasks.reduce((sum, t) => sum + t.timesheetEntries.reduce((s, e) => s + e.hours, 0), 0);
+        const utilizationPct = budgetHours > 0 ? Math.round((loggedHours / budgetHours) * 100) : 0;
+        return {
+          project: p.name,
+          client: p.client.name,
+          status: p.status,
+          budgetHours,
+          loggedHours: Math.round(loggedHours * 100) / 100,
+          utilizationPct,
+        };
+      });
+    }
+
+    case "approval-compliance": {
+      const timesheets = await prisma.timesheet.findMany({
+        where: { submittedAt: { not: null }, status: filters.status },
+        include: { user: true, approvals: true },
+        orderBy: { submittedAt: "desc" },
+        take: 200,
+      });
+      return timesheets.map((t) => {
+        const l1 = t.approvals.find((a) => a.level === 1);
+        const l2 = t.approvals.find((a) => a.level === 2);
+        const daysBetween = (a?: Date | null, b?: Date | null) =>
+          a && b ? Math.round(((b.getTime() - a.getTime()) / (1000 * 60 * 60 * 24)) * 10) / 10 : null;
+        const pendingDays = t.submittedAt && !l1 ? Math.floor((Date.now() - t.submittedAt.getTime()) / (1000 * 60 * 60 * 24)) : 0;
+        return {
+          employeeId: t.user.employeeId,
+          employee: t.user.name,
+          weekStartDate: toIsoDate(t.weekStartDate),
+          status: t.status,
+          submittedAt: t.submittedAt,
+          level1TimeDays: daysBetween(t.submittedAt, l1?.actedAt ?? null),
+          level2TimeDays: daysBetween(l1?.actedAt ?? null, l2?.actedAt ?? null),
+          pendingDays,
+          slaBreached: pendingDays > 3,
+        };
+      });
+    }
+
+    case "missing-timesheets": {
+      const users = await prisma.user.findMany({
+        where: { status: "ACTIVE", role: { name: "INDIVIDUAL_USER" }, departmentId: filters.departmentId },
+        include: { timesheets: { where: { weekStartDate: dateRangeWhere(filters) ? { gte: new Date(filters.dateFrom!), lte: new Date(filters.dateTo!) } : undefined } }, department: true },
+      });
+      return users
+        .filter((u) => u.timesheets.every((t) => t.status === "DRAFT"))
+        .map((u) => ({
+          employeeId: u.employeeId,
+          employee: u.name,
+          department: u.department?.name ?? "—",
+          weekStartDate: filters.dateFrom ?? "current week",
+          daysOverdue: filters.dateTo ? Math.max(0, Math.floor((Date.now() - new Date(filters.dateTo).getTime()) / (1000 * 60 * 60 * 24))) : 0,
+        }));
+    }
+
+    case "overtime": {
+      const entries = await prisma.timesheetEntry.findMany({
+        where: { hours: { gt: 8 }, entryDate: dateRangeWhere(filters) },
+        include: { projectTask: { include: { project: true } }, timesheet: { include: { user: true } } },
+        orderBy: { hours: "desc" },
+        take: 200,
+      });
+      return entries.map((e) => ({
+        employee: e.timesheet.user.name,
+        date: toIsoDate(e.entryDate),
+        project: e.projectTask.project.name,
+        hours: e.hours,
+        thresholdExceeded: "Daily > 8h",
+      }));
+    }
+
+    case "client-audit": {
+      if (!filters.clientId) return [];
+      const entries = await prisma.timesheetEntry.findMany({
+        where: {
+          entryDate: dateRangeWhere(filters),
+          projectTask: { projectId: filters.projectId, project: { clientId: filters.clientId } },
+          timesheet: { status: filters.status },
+        },
+        include: {
+          projectTask: { include: { project: { include: { client: true } } } },
+          timesheet: { include: { user: { include: { role: true } } } },
+        },
+        orderBy: { entryDate: "asc" },
+      });
+      return entries
+        .map((e) => ({
+          client: e.projectTask.project.client.name,
+          project: e.projectTask.project.name,
+          projectCode: e.projectTask.project.code,
+          employeeId: e.timesheet.user.employeeId,
+          employee: e.timesheet.user.name,
+          role: e.timesheet.user.role.name,
+          task: e.projectTask.name,
+          date: toIsoDate(e.entryDate),
+          hours: e.hours,
+          timesheetStatus: e.timesheet.status,
+          notes: e.notes ?? "",
+        }))
+        .sort(
+          (a, b) =>
+            a.project.localeCompare(b.project) || a.employee.localeCompare(b.employee) || a.date.localeCompare(b.date)
+        );
+    }
+
+    case "audit-trail": {
+      const logs = await prisma.auditLog.findMany({
+        where: { actorId: filters.userId, createdAt: dateRangeWhere(filters) },
+        include: { actor: true },
+        orderBy: { createdAt: "desc" },
+        take: 300,
+      });
+      return logs.map((l) => ({
+        timestamp: l.createdAt,
+        actor: l.actor?.name ?? "System",
+        entityType: l.entityType,
+        entityId: l.entityId,
+        action: l.action,
+      }));
+    }
+
+    default:
+      return [];
+  }
+}
+
+/**
+ * Client-facing "proof of hours" report: every project under a client, each
+ * project's contributing resources, and the hours each resource logged.
+ * Powers the on-screen preview for the "client-audit" report — the
+ * entry-level line items for its CSV/XLSX/PDF export come from
+ * getReportData("client-audit", ...) above instead.
+ */
+export async function getClientAuditReport(filters: ReportFilters) {
+  if (!filters.clientId) {
+    return { client: null, projects: [], grandTotalHours: 0, grandTotalResources: 0 };
+  }
+
+  const client = await prisma.client.findUnique({ where: { id: filters.clientId } });
+  const projects = await prisma.project.findMany({
+    where: { clientId: filters.clientId, id: filters.projectId },
+    orderBy: { name: "asc" },
+  });
+
+  const projectRows = await Promise.all(
+    projects.map(async (p) => {
+      const entries = await prisma.timesheetEntry.findMany({
+        where: {
+          entryDate: dateRangeWhere(filters),
+          projectTask: { projectId: p.id },
+          timesheet: { status: filters.status },
+        },
+        include: { timesheet: { include: { user: { include: { role: true } } } } },
+      });
+
+      const byUser = new Map<number, { user: (typeof entries)[number]["timesheet"]["user"]; totalHours: number; entryCount: number }>();
+      for (const e of entries) {
+        const u = e.timesheet.user;
+        const existing = byUser.get(u.id);
+        if (existing) {
+          existing.totalHours += e.hours;
+          existing.entryCount += 1;
+        } else {
+          byUser.set(u.id, { user: u, totalHours: e.hours, entryCount: 1 });
+        }
+      }
+
+      const resources = [...byUser.values()]
+        .map((r) => ({
+          userId: String(r.user.id),
+          employeeId: r.user.employeeId,
+          name: r.user.name,
+          role: r.user.role.name,
+          totalHours: Math.round(r.totalHours * 100) / 100,
+          entryCount: r.entryCount,
+        }))
+        .sort((a, b) => b.totalHours - a.totalHours);
+
+      const projectTotalHours = Math.round(resources.reduce((s, r) => s + r.totalHours, 0) * 100) / 100;
+
+      return {
+        projectId: String(p.id),
+        projectName: p.name,
+        code: p.code,
+        status: p.status,
+        resources,
+        projectTotalHours,
+      };
+    })
+  );
+
+  const grandTotalHours = Math.round(projectRows.reduce((s, p) => s + p.projectTotalHours, 0) * 100) / 100;
+  const grandTotalResources = new Set(projectRows.flatMap((p) => p.resources.map((r) => r.userId))).size;
+
+  return {
+    client: client ? { id: String(client.id), name: client.name } : null,
+    projects: projectRows,
+    grandTotalHours,
+    grandTotalResources,
+  };
+}
+
+export async function getUtilizationChartData() {
+  const projects = await prisma.project.findMany({ include: { tasks: { include: { timesheetEntries: true } } } });
+  const donut = projects.map((p) => {
+    const budgetHours = sumEstimatedHours(p.tasks);
+    const loggedHours = p.tasks.reduce((sum, t) => sum + t.timesheetEntries.reduce((s, e) => s + e.hours, 0), 0);
+    const utilizationPct = budgetHours > 0 ? Math.round((loggedHours / budgetHours) * 100) : 0;
+    return { project: p.name, utilizationPct };
+  });
+
+  const entries = await prisma.timesheetEntry.findMany({ orderBy: { entryDate: "asc" } });
+  const byWeek = new Map<string, number>();
+  for (const e of entries) {
+    const d = new Date(e.entryDate);
+    const monday = new Date(d);
+    monday.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+    const key = toIsoDate(monday);
+    byWeek.set(key, (byWeek.get(key) ?? 0) + e.hours);
+  }
+  const trend = [...byWeek.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([week, hours]) => ({ week, hours }));
+
+  return { donut, trend };
+}
+
+/**
+ * Project-utilization rows/trend/summary in the exact shape the Reports
+ * screen's charts and table expect (ProjectUtilizationRow[] / {label,value}[]).
+ * The screen renders this same shape regardless of which reportKey is
+ * selected — see SCHEMA_REFERENCE.md "Reports" for why — so this is what
+ * backs GET /reports/:reportKey's JSON preview for every key. The real,
+ * report-specific column data (timesheet-summary, audit-trail, etc.) is
+ * still used for CSV/XLSX/PDF export via getReportData above.
+ */
+export async function getUtilizationOverview(filters: ReportFilters) {
+  const rows = (await getReportData("project-utilization", filters)) as {
+    project: string;
+    client: string;
+    budgetHours: number;
+    loggedHours: number;
+    utilizationPct: number;
+  }[];
+
+  const projectIds = await prisma.project.findMany({ where: { id: filters.projectId, clientId: filters.clientId }, select: { id: true, name: true } });
+  const idByName = new Map(projectIds.map((p) => [p.name, p.id]));
+
+  const utilizationByProject = rows.map((r) => ({
+    projectId: idByName.get(r.project) ?? 0,
+    projectName: r.project,
+    clientName: r.client,
+    budgetHours: r.budgetHours,
+    loggedHours: r.loggedHours,
+    utilizationPct: r.utilizationPct,
+  }));
+
+  const { trend: rawTrend } = await getUtilizationChartData();
+  const trend = rawTrend.map((t) => ({ label: t.week, value: Math.round(t.hours * 100) / 100 }));
+
+  const totalBudgetHours = rows.reduce((s, r) => s + r.budgetHours, 0);
+  const totalLoggedHours = rows.reduce((s, r) => s + r.loggedHours, 0);
+  const summary = {
+    totalProjects: rows.length,
+    totalBudgetHours: Math.round(totalBudgetHours * 100) / 100,
+    totalLoggedHours: Math.round(totalLoggedHours * 100) / 100,
+    avgUtilizationPct: rows.length ? Math.round(rows.reduce((s, r) => s + r.utilizationPct, 0) / rows.length) : 0,
+  };
+
+  return { summary, utilizationByProject, trend, rows: utilizationByProject };
+}

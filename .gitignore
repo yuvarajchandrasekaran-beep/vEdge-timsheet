@@ -1,0 +1,25 @@
+.tools/
+logs/
+.pids/
+
+# Dependencies
+node_modules/
+
+# Build output
+backend/dist/
+frontend/dist/
+*.tsbuildinfo
+
+# Local database (schema + seed are committed; the data file is not)
+backend/prisma/dev.db
+backend/prisma/dev.db-journal
+backend/prisma/*.db-wal
+backend/prisma/*.db-shm
+
+# Secrets (backend/.env.example is committed as the template)
+backend/.env
+frontend/.env
+frontend/.env.local
+
+# OS/editor cruft
+.DS_Store

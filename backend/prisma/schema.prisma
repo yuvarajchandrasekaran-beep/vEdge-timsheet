@@ -1,0 +1,281 @@
+// TimeSync data model.
+//
+// Provider is SQLite for zero-install local development. SQLite has no native
+// enum type, so enum-like columns are plain String columns constrained by the
+// app layer (see src/constants/enums.ts) — switching `provider` to "mysql" and
+// pointing DATABASE_URL at a real MySQL instance is the only change needed to
+// run this schema in production; the String columns can optionally be
+// promoted to native Prisma `enum` at that point.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Role {
+  id    Int    @id @default(autoincrement())
+  name  String @unique // SUPER_ADMIN | HR_ADMIN | PROJECT_ADMIN | INDIVIDUAL_USER
+  users User[]
+
+  @@map("roles")
+}
+
+model Department {
+  id    Int    @id @default(autoincrement())
+  name  String
+  code  String @unique
+  users User[]
+  holidays Holiday[]
+
+  @@map("departments")
+}
+
+model User {
+  id             Int       @id @default(autoincrement())
+  employeeId     String    @unique
+  name           String
+  email          String    @unique
+  passwordHash   String
+  roleId         Int
+  role           Role      @relation(fields: [roleId], references: [id])
+  departmentId   Int?
+  department     Department? @relation(fields: [departmentId], references: [id])
+  jobTitle       String?
+  managerId      Int?
+  manager        User?     @relation("UserManager", fields: [managerId], references: [id])
+  reports        User[]    @relation("UserManager")
+  status         String    @default("ACTIVE") // ACTIVE | INACTIVE
+  startDate      DateTime?
+  timezone       String    @default("Asia/Kolkata")
+  location       String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  projectMembers    ProjectMember[]
+  timesheets        Timesheet[]
+  approvalsActed    Approval[]        @relation("ApproverActions")
+  notifications     Notification[]
+  auditLogs         AuditLog[]        @relation("AuditActor")
+  importBatches     ImportBatch[]     @relation("ImportUploader")
+  delegationsFrom   Delegation[]      @relation("DelegationFrom")
+  delegationsTo     Delegation[]      @relation("DelegationTo")
+
+  @@map("users")
+}
+
+model Client {
+  id       Int       @id @default(autoincrement())
+  name     String    @unique
+  status   String    @default("ACTIVE") // ACTIVE | INACTIVE
+  projects Project[]
+
+  @@map("clients")
+}
+
+model Project {
+  id            Int       @id @default(autoincrement())
+  clientId      Int
+  client        Client    @relation(fields: [clientId], references: [id])
+  code          String    @unique
+  name          String
+  description   String?
+  startDate     DateTime
+  endDate       DateTime?
+  status        String    @default("ACTIVE") // ACTIVE | ON_HOLD | ARCHIVED | COMPLETED
+  billingType   String    @default("T_AND_M") // T_AND_M | FIXED | MANAGED_SERVICES — the contract type; billable/non-billable is now captured per-task (see ProjectTask.billable)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Budget hours are NOT stored here — they're rolled up bottoms-up from
+  // ProjectTask.estimatedHours (see utils/projectHours.ts). A project can
+  // have more than one admin: any ProjectMember row with
+  // roleOnProject = "Project Admin" (see ProjectMember below).
+  tasks         ProjectTask[]
+  members       ProjectMember[]
+
+  @@map("projects")
+}
+
+model ProjectTask {
+  id             Int       @id @default(autoincrement())
+  projectId      Int
+  project        Project   @relation(fields: [projectId], references: [id])
+  name           String
+  startDate      DateTime?
+  endDate        DateTime?
+  estimatedHours Float?
+  billable       Boolean   @default(true)
+  active         Boolean   @default(true)
+
+  timesheetEntries TimesheetEntry[]
+
+  @@map("project_tasks")
+}
+
+model ProjectMember {
+  id               Int      @id @default(autoincrement())
+  projectId        Int
+  project          Project  @relation(fields: [projectId], references: [id])
+  userId           Int
+  user             User     @relation(fields: [userId], references: [id])
+  roleOnProject    String   @default("Member") // Project Admin | Member — a project may have several "Project Admin" rows
+  maxHoursPerDay   Float?
+  maxHoursPerWeek  Float?
+  isFavorite       Boolean  @default(false)
+
+  @@unique([projectId, userId])
+  @@map("project_members")
+}
+
+model Timesheet {
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  user          User     @relation(fields: [userId], references: [id])
+  weekStartDate DateTime
+  status        String   @default("DRAFT") // DRAFT|SUBMITTED|APPROVED_L1|APPROVED_L2|REJECTED|RECALLED
+  weekNotes     String?
+  submittedAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  entries    TimesheetEntry[]
+  approvals  Approval[]
+
+  @@unique([userId, weekStartDate])
+  @@map("timesheets")
+}
+
+model TimesheetEntry {
+  id            Int         @id @default(autoincrement())
+  timesheetId   Int
+  timesheet     Timesheet   @relation(fields: [timesheetId], references: [id])
+  projectTaskId Int
+  projectTask   ProjectTask @relation(fields: [projectTaskId], references: [id])
+  entryDate     DateTime
+  hours         Float       @default(0)
+  notes         String?
+
+  @@unique([timesheetId, projectTaskId, entryDate])
+  @@map("timesheet_entries")
+}
+
+model Approval {
+  id          Int       @id @default(autoincrement())
+  timesheetId Int
+  timesheet   Timesheet @relation(fields: [timesheetId], references: [id])
+  level       Int       // 1 or 2
+  approverId  Int
+  approver    User      @relation("ApproverActions", fields: [approverId], references: [id])
+  action      String    // APPROVED | REJECTED
+  comment     String?
+  actedAt     DateTime  @default(now())
+
+  @@map("approvals")
+}
+
+model Delegation {
+  id         Int      @id @default(autoincrement())
+  fromUserId Int
+  fromUser   User     @relation("DelegationFrom", fields: [fromUserId], references: [id])
+  toUserId   Int
+  toUser     User     @relation("DelegationTo", fields: [toUserId], references: [id])
+  startDate  DateTime
+  endDate    DateTime
+  active     Boolean  @default(true)
+
+  @@map("delegations")
+}
+
+model Notification {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  user      User      @relation(fields: [userId], references: [id])
+  type      String
+  title     String
+  message   String
+  payload   String?   // JSON-encoded extra data
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@map("notifications")
+}
+
+model NotificationRule {
+  id            Int      @id @default(autoincrement())
+  scope         String   // Global | Department | Project
+  scopeId       Int?
+  type          String   // SubmissionReminder | OverdueSubmission | PendingApproval | Escalation
+  cadenceConfig String   // JSON-encoded { days: [...], thresholdDays, ... }
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("notification_rules")
+}
+
+model AuditLog {
+  id          Int      @id @default(autoincrement())
+  actorId     Int?
+  actor       User?    @relation("AuditActor", fields: [actorId], references: [id])
+  entityType  String
+  entityId    Int?
+  action      String
+  beforeState String?  // JSON-encoded
+  afterState  String?  // JSON-encoded
+  createdAt   DateTime @default(now())
+
+  @@map("audit_logs")
+}
+
+model ImportBatch {
+  id           Int      @id @default(autoincrement())
+  type         String   // Users | Projects
+  uploadedById Int
+  uploadedBy   User     @relation("ImportUploader", fields: [uploadedById], references: [id])
+  fileName     String
+  totalRows    Int      @default(0)
+  successRows  Int      @default(0)
+  errorRows    Int      @default(0)
+  errorReport  String?  // JSON-encoded array of { row, errors[] }
+  createdAt    DateTime @default(now())
+
+  @@map("import_batches")
+}
+
+model Holiday {
+  id           Int         @id @default(autoincrement())
+  name         String
+  date         DateTime
+  departmentId Int?
+  department   Department? @relation(fields: [departmentId], references: [id])
+
+  @@map("holidays")
+}
+
+model OrganizationSettings {
+  id                   Int    @id @default(autoincrement())
+  orgName              String @default("Vivid Edge Integration COE")
+  timezone             String @default("Asia/Kolkata")
+  workWeekStartDay     String @default("MONDAY") // MONDAY | SUNDAY
+  standardHoursPerDay  Float  @default(8)
+  weeklyHourLimit      Float  @default(40)
+  fiscalYearStartMonth Int    @default(1)
+  brandingLogoUrl      String @default("/brand/logo.svg")
+  brandingPrimaryColor String @default("#1B4298")
+  brandingAccentColor  String @default("#00AEEF")
+
+  @@map("organization_settings")
+}
+
+model ApprovalChainConfig {
+  id           Int    @id @default(autoincrement())
+  scope        String // Global | Department | Project
+  scopeId      Int?
+  level1Role   String @default("PROJECT_ADMIN")
+  level2Role   String @default("HR_ADMIN")
+
+  @@map("approval_chain_configs")
+}
