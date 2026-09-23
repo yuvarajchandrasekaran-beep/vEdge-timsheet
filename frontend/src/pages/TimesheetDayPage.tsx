@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { format, parseISO } from "date-fns";
 import { useMyTimesheet, useSaveTimesheetDraft, useSubmitTimesheet } from "../hooks/useTimesheets";
 import { useProjects } from "../hooks/useProjects";
+import { useHolidayMap } from "../hooks/useHolidays";
 import { useDebouncedCallback } from "../hooks/useDebouncedCallback";
 import { getWeekStart } from "../utils/week";
 import { usePageHeader } from "../hooks/usePageHeader";
@@ -37,6 +38,8 @@ export default function TimesheetDayPage() {
   const date = searchParams.get("date") || todayIso;
   const weekStart = getWeekStart(parseISO(date));
   usePageHeader(format(parseISO(date), "EEEE, MMM d, yyyy"));
+  const holidayMap = useHolidayMap(useMemo(() => [date], [date]));
+  const holidayName = holidayMap.get(date);
 
   const timesheetQuery = useMyTimesheet(weekStart);
   const projectsQuery = useProjects({ status: "ACTIVE", page: 1, pageSize: 100 });
@@ -185,8 +188,16 @@ export default function TimesheetDayPage() {
             type="date"
             value={date}
             onChange={(e) => setSearchParams({ date: e.target.value })}
-            className="rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-700 focus:border-brand-primary focus:outline-none focus:ring-1 focus:ring-brand-primary"
+            className={clsx(
+              "rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand-primary",
+              holidayName ? "border-purple-200 bg-purple-50 text-purple-700" : "border-gray-200 text-gray-700 focus:border-brand-primary"
+            )}
           />
+          {holidayName && (
+            <span title={`${holidayName} (company holiday)`} className="rounded-full bg-purple-50 px-2.5 py-1 text-xs font-medium text-purple-700">
+              {holidayName}
+            </span>
+          )}
           {isEditable && (
             <button
               onClick={copyFromPreviousDay}

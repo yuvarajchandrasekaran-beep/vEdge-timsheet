@@ -53,7 +53,13 @@ export function ProjectDetailModal({
   const project = projectQuery.data;
 
   const admins = project?.members.filter((m) => m.roleOnProject === "Project Admin") ?? [];
-  const regularMembers = project?.members.filter((m) => m.roleOnProject !== "Project Admin") ?? [];
+  // Every project membership row is also a team member — an admin is never
+  // excluded from this list. A person who administers the project can (and
+  // usually does) also need to log time against it, so the Members section
+  // shows them too, with their role noted underneath their name; removal
+  // still routes through removeMemberSafely, which keeps the "at least one
+  // admin" rule regardless of which section's Remove button was clicked.
+  const regularMembers = project?.members ?? [];
 
   // Only the project's own Project Admin(s), or a Super Admin, can add
   // people to the project or its tasks — mirrors the backend's

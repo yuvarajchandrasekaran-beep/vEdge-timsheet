@@ -8,7 +8,7 @@ import { useKeyedDebouncedCallback } from "../hooks/useKeyedDebouncedCallback";
 import { useToast } from "../components/common/Toast";
 import { getApiErrorMessage } from "../api/client";
 import { getWeekDays, getWeekEnd, getWeekStart } from "../utils/week";
-import { formatHoursMinutes, formatWeekRange } from "../utils/format";
+import { formatWeekRange } from "../utils/format";
 import { validateCellHours, validateDayTotal } from "../utils/validation";
 import {
   buildRowsFromTimesheets,
@@ -32,6 +32,7 @@ import { TimesheetViewSwitcher } from "../components/timesheet/TimesheetViewSwit
 import { SubmitPeriodModal } from "../components/timesheet/SubmitPeriodModal";
 import { CompactViewToggle } from "../components/timesheet/CompactViewToggle";
 import { useShowWeekends } from "../hooks/useShowWeekends";
+import { useHolidayMap } from "../hooks/useHolidays";
 import { LoadingBlock } from "../components/common/Spinner";
 import { IconChevronLeft, IconChevronRight, IconCopy, IconTrash } from "../components/common/icons";
 
@@ -82,6 +83,7 @@ export default function TimesheetPeriodPage({ kind }: { kind: PeriodKind }) {
   // tables reading from this same data, see the render section below).
   const allDays = useMemo(() => weekStarts.flatMap((ws) => getWeekDays(ws)), [weekStarts]);
   const allDates = useMemo(() => allDays.map((d) => d.date), [allDays]);
+  const holidayMap = useHolidayMap(allDates);
 
   // "Company view" — a display-only filter, applied per-block in
   // PeriodGridBlock below. Totals/warnings/persistence here always use the
@@ -453,23 +455,6 @@ export default function TimesheetPeriodPage({ kind }: { kind: PeriodKind }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <SummaryTile label={`Total for ${label}`} value={formatHoursMinutes(grandTotal)} />
-        {weekSummaries.map((w, i) => (
-          <SummaryTile
-            key={w.weekStart}
-            label={formatWeekRange(w.weekStart, w.weekEnd)}
-            dotColor={weekColor(i).chip}
-            value={
-              <span className="flex items-center gap-2">
-                {formatHoursMinutes(w.totalHours)}
-                <StatusBadge status={statusForWeek(w.weekStart)} kind="timesheet" />
-              </span>
-            }
-          />
-        ))}
-      </div>
-
       <div className="rounded-2xl bg-white p-4 shadow-soft ring-1 ring-gray-100 sm:p-5">
         <p className="mb-3 text-xs text-gray-600">
           Hours are decimal (e.g. <span className="font-medium text-gray-700">7.5</span> = 7h 30m), not clock time — 4.30 means 4 hours 18 minutes, not 4:30. Each row is one project/task for the whole {kind}, grouped two weeks at a time.
@@ -503,6 +488,7 @@ export default function TimesheetPeriodPage({ kind }: { kind: PeriodKind }) {
               rowHasLockedHours={rowHasLockedHours}
               projectColor={projectColor}
               showWeekends={showWeekends}
+              holidayMap={holidayMap}
             />
           ))}
         </div>
@@ -555,6 +541,7 @@ function PeriodGridBlock({
   rowHasLockedHours,
   projectColor,
   showWeekends,
+  holidayMap,
 }: {
   weekStartsChunk: string[];
   weekIndexOffset: number;
@@ -567,6 +554,7 @@ function PeriodGridBlock({
   rowHasLockedHours: (row: GridRow) => boolean;
   projectColor: (projectId: string) => string;
   showWeekends: boolean;
+  holidayMap: Map<string, string>;
 }) {
   function weekStartOfDate(date: string): string {
     return getWeekStart(new Date(`${date}T00:00:00`));
@@ -609,19 +597,23 @@ function PeriodGridBlock({
             <th className="w-8" rowSpan={2} />
           </tr>
           <tr>
-            {visibleChunkDays.map((d) => (
-              <th
-                key={d.date}
-                className={clsx(
-                  "px-1 pb-2 pt-1.5 text-center text-xs font-semibold uppercase tracking-wide",
-                  weekColor(weekIndexOfDate(d.date)).cell,
-                  d.isWeekend ? "text-gray-400" : "text-gray-600"
-                )}
-              >
-                {d.label}
-                <div className="text-[11px] font-normal normal-case text-gray-500">{d.dayNumber}</div>
-              </th>
-            ))}
+            {visibleChunkDays.map((d) => {
+              const holidayName = holidayMap.get(d.date);
+              return (
+                <th
+                  key={d.date}
+                  title={holidayName ? `${holidayName} (company holiday)` : undefined}
+                  className={clsx(
+                    "px-1 pb-2 pt-1.5 text-center text-xs font-semibold uppercase tracking-wide",
+                    holidayName ? "bg-purple-50 text-purple-700" : weekColor(weekIndexOfDate(d.date)).cell,
+                    !holidayName && (d.isWeekend ? "text-gray-400" : "text-gray-600")
+                  )}
+                >
+                  {d.label}
+                  <div className={clsx("text-[11px] font-normal normal-case", holidayName ? "text-purple-500" : "text-gray-500")}>{d.dayNumber}</div>
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody>
@@ -675,18 +667,6 @@ function PeriodGridBlock({
           </tfoot>
         )}
       </table>
-    </div>
-  );
-}
-
-function SummaryTile({ label, value, dotColor }: { label: string; value: ReactNode; dotColor?: string }) {
-  return (
-    <div className="rounded-2xl bg-white p-4 shadow-soft ring-1 ring-gray-100">
-      <p className="flex items-center gap-1.5 text-xs font-medium text-gray-600">
-        {dotColor && <span className={clsx("h-2 w-2 rounded-full", dotColor.split(" ")[0])} />}
-        {label}
-      </p>
-      <p className="mt-1 text-base font-bold text-gray-900">{value}</p>
     </div>
   );
 }

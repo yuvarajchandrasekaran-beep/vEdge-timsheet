@@ -2,7 +2,7 @@ import { Router } from "express";
 import { prisma } from "../lib/prisma";
 import { asyncHandler } from "../utils/asyncHandler";
 import { requireAuth } from "../middleware/auth";
-import { ROLES, TIMESHEET_STATUS, PROJECT_MEMBER_ROLE } from "../constants/enums";
+import { ROLES, TIMESHEET_STATUS } from "../constants/enums";
 import { resolveApprover } from "../services/approvalRouting";
 
 const router = Router();
@@ -53,10 +53,8 @@ router.get(
     }
 
     const projectsActiveWhere =
-      user.role === ROLES.INDIVIDUAL_USER
+      user.role === ROLES.INDIVIDUAL_USER || user.role === ROLES.PROJECT_ADMIN
         ? { members: { some: { userId: user.id } }, status: "ACTIVE" }
-        : user.role === ROLES.PROJECT_ADMIN
-        ? { members: { some: { userId: user.id, roleOnProject: PROJECT_MEMBER_ROLE.PROJECT_ADMIN } }, status: "ACTIVE" }
         : { status: "ACTIVE" };
     const projectsActive = await prisma.project.count({ where: projectsActiveWhere });
     const clientsCount = await prisma.client.count();

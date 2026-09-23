@@ -559,7 +559,12 @@ clients still must pick one client explicitly, same as everyone else.
   widest single word (avoids mid-word wrapping), and pagination with a
   repeating header row (first 500 rows, with a footer note if truncated).
   Dates are formatted via `formatDateTime` (e.g. "Sep 10, 2026, 11:48 PM")
-  rather than a raw `Date.toString()` dump.
+  rather than a raw `Date.toString()` dump. Every export also carries the
+  Vivid Edge logo (`routes/reports.ts`, rasterized once at
+  `backend/assets/vivid-edge-logo.png` from `frontend/public/brand/logo.svg`
+  since `pdfkit` can't embed SVG directly) — this is the same generator for
+  all seven report keys, including Client Audit, which is the one report
+  built specifically to be handed or emailed to an external client.
 
 Scheduled delivery (`POST /reports/{key}/schedule`) records the schedule as a
 `notification_rules` row but does not (and cannot, without an email provider —

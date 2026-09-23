@@ -96,6 +96,7 @@ The grid checks your entries as you type, before you ever hit submit:
 |---|---|
 | Red cell + message | **Blocking.** You're not assigned to that project, it's outside the project's active dates, or you've gone over a configured hour cap. Fix it before you can save that entry. |
 | Amber highlight | **Warning.** Unusually high total for one day across all your projects (e.g. over 12 hours) — you can proceed, but confirm it's intentional. |
+| Purple day column | **Company holiday.** Hover the day header for the holiday's name. Informational only — you can still log time that day, and it's still the same "confirm it's legitimate" warning at submit time described above. |
 | A cell that won't save | Usually a missing required note on a large entry — add the note and it will save. |
 
 ### 1.5 Submitting
@@ -202,6 +203,12 @@ Click **Projects**. This screen has two tabs: **Projects** and **Clients**.
   per day/week on this project here (e.g. capping a part-time engagement at
   20h/week) — this cap is what powers the red-cell blocking rule employees
   see in their grid.
+- **A project admin is automatically also a team member** on that project —
+  they appear in both the "Project admins" and "Members" sections (labeled
+  "Project Admin" in the latter), and can log their own time against it like
+  anyone else. The same person can likewise be an admin on one project and a
+  plain member on a different one; either way, every project they're on
+  shows up in their timesheet's project picker.
 - **Sending timesheets to the client**: from a project's **Overview** tab,
   check **"Send timesheets to the client for this project"** and enter the
   client's contact email. This unlocks a **Send timesheet to client…** link

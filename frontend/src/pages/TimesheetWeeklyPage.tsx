@@ -21,6 +21,7 @@ import { CommentOverlay } from "../components/timesheet/CommentOverlay";
 import { TimesheetViewSwitcher } from "../components/timesheet/TimesheetViewSwitcher";
 import { CompactViewToggle } from "../components/timesheet/CompactViewToggle";
 import { useShowWeekends } from "../hooks/useShowWeekends";
+import { useHolidayMap } from "../hooks/useHolidays";
 import clsx from "clsx";
 
 const AUTOSAVE_DELAY = 900;
@@ -31,6 +32,7 @@ export default function TimesheetWeeklyPage() {
   const weekStart = searchParams.get("week") || defaultWeek;
   const weekEnd = getWeekEnd(weekStart);
   const days = useMemo(() => getWeekDays(weekStart), [weekStart]);
+  const holidayMap = useHolidayMap(useMemo(() => days.map((d) => d.date), [days]));
   const [showWeekends, setShowWeekends] = useShowWeekends();
   const visibleDays = useMemo(() => (showWeekends ? days : days.filter((d) => !d.isWeekend)), [days, showWeekends]);
   const navigate = useNavigate();
@@ -326,12 +328,22 @@ export default function TimesheetWeeklyPage() {
                 <th className="sticky left-0 z-10 bg-white px-3 pb-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">
                   Project / Task
                 </th>
-                {visibleDays.map((d) => (
-                  <th key={d.date} className={clsx("px-2 pb-3 text-center text-xs font-semibold uppercase tracking-wide", d.isWeekend ? "text-gray-400" : "text-gray-600")}>
-                    {d.label}
-                    <div className="text-[11px] font-normal normal-case text-gray-500">{d.dayNumber}</div>
-                  </th>
-                ))}
+                {visibleDays.map((d) => {
+                  const holidayName = holidayMap.get(d.date);
+                  return (
+                    <th
+                      key={d.date}
+                      title={holidayName ? `${holidayName} (company holiday)` : undefined}
+                      className={clsx(
+                        "px-2 pb-3 text-center text-xs font-semibold uppercase tracking-wide",
+                        holidayName ? "rounded-t-lg bg-purple-50 text-purple-700" : d.isWeekend ? "text-gray-400" : "text-gray-600"
+                      )}
+                    >
+                      {d.label}
+                      <div className={clsx("text-[11px] font-normal normal-case", holidayName ? "text-purple-500" : "text-gray-500")}>{d.dayNumber}</div>
+                    </th>
+                  );
+                })}
                 <th className="px-3 pb-3 text-center text-xs font-semibold uppercase tracking-wide text-gray-600">Total</th>
                 <th className="w-8" />
               </tr>

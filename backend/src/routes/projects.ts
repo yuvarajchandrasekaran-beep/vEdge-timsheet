@@ -92,9 +92,13 @@ router.get(
       ],
     };
 
-    if (req.user!.role === ROLES.PROJECT_ADMIN) {
-      where.AND.push({ members: { some: { userId: req.user!.id, roleOnProject: PROJECT_MEMBER_ROLE.PROJECT_ADMIN } } });
-    } else if (req.user!.role === ROLES.INDIVIDUAL_USER) {
+    if (req.user!.role === ROLES.PROJECT_ADMIN || req.user!.role === ROLES.INDIVIDUAL_USER) {
+      // Any membership row counts, not just an admin one — a Project Admin
+      // on one project can simultaneously be a plain team member on another
+      // (or, per ProjectDetailModal's Members tab, on the same one), and
+      // needs that project to show up here too so they can log time against
+      // it. `canManage` (computed per-project from the project's own admins
+      // list) is what actually gates edit/delete affordances, not this list.
       where.AND.push({ members: { some: { userId: req.user!.id } } });
     }
 
