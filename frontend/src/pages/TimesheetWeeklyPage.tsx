@@ -336,11 +336,15 @@ export default function TimesheetWeeklyPage() {
                       title={holidayName ? `${holidayName} (company holiday)` : undefined}
                       className={clsx(
                         "px-2 pb-3 text-center text-xs font-semibold uppercase tracking-wide",
-                        holidayName ? "rounded-t-lg bg-purple-50 text-purple-700" : d.isWeekend ? "text-gray-400" : "text-gray-600"
+                        holidayName
+                          ? "rounded-t-lg bg-purple-600 text-white shadow-sm ring-2 ring-purple-300"
+                          : d.isWeekend
+                          ? "text-gray-400"
+                          : "text-gray-600"
                       )}
                     >
                       {d.label}
-                      <div className={clsx("text-[11px] font-normal normal-case", holidayName ? "text-purple-500" : "text-gray-500")}>{d.dayNumber}</div>
+                      <div className={clsx("text-[11px] font-normal normal-case", holidayName ? "text-purple-100" : "text-gray-500")}>{d.dayNumber}</div>
                     </th>
                   );
                 })}

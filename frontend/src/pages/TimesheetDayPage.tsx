@@ -190,11 +190,11 @@ export default function TimesheetDayPage() {
             onChange={(e) => setSearchParams({ date: e.target.value })}
             className={clsx(
               "rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand-primary",
-              holidayName ? "border-purple-200 bg-purple-50 text-purple-700" : "border-gray-200 text-gray-700 focus:border-brand-primary"
+              holidayName ? "border-purple-400 bg-purple-100 text-purple-900 font-medium" : "border-gray-200 text-gray-700 focus:border-brand-primary"
             )}
           />
           {holidayName && (
-            <span title={`${holidayName} (company holiday)`} className="rounded-full bg-purple-50 px-2.5 py-1 text-xs font-medium text-purple-700">
+            <span title={`${holidayName} (company holiday)`} className="rounded-full bg-purple-600 px-2.5 py-1 text-xs font-semibold text-white shadow-sm">
               {holidayName}
             </span>
           )}

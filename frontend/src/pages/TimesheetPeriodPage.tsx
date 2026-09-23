@@ -605,12 +605,12 @@ function PeriodGridBlock({
                   title={holidayName ? `${holidayName} (company holiday)` : undefined}
                   className={clsx(
                     "px-1 pb-2 pt-1.5 text-center text-xs font-semibold uppercase tracking-wide",
-                    holidayName ? "bg-purple-50 text-purple-700" : weekColor(weekIndexOfDate(d.date)).cell,
+                    holidayName ? "bg-purple-600 text-white shadow-sm ring-2 ring-purple-300" : weekColor(weekIndexOfDate(d.date)).cell,
                     !holidayName && (d.isWeekend ? "text-gray-400" : "text-gray-600")
                   )}
                 >
                   {d.label}
-                  <div className={clsx("text-[11px] font-normal normal-case", holidayName ? "text-purple-500" : "text-gray-500")}>{d.dayNumber}</div>
+                  <div className={clsx("text-[11px] font-normal normal-case", holidayName ? "text-purple-100" : "text-gray-500")}>{d.dayNumber}</div>
                 </th>
               );
             })}
