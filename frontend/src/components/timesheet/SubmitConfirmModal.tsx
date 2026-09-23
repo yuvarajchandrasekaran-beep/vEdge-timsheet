@@ -13,18 +13,23 @@ export function SubmitConfirmModal({
   dayTotals,
   weekTotalHours,
   warnings,
+  blockingIssues = [],
   weekLabel,
+  confirmLabel = "Confirm & Submit",
 }: {
   open: boolean;
   onClose: () => void;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
   submitting: boolean;
   days: WeekDay[];
   dayTotals: number[];
   weekTotalHours: number;
   warnings: string[];
+  blockingIssues?: string[];
   weekLabel: string;
+  confirmLabel?: string;
 }) {
+  const canSubmit = blockingIssues.length === 0;
   return (
     <Modal
       open={open}
@@ -40,11 +45,12 @@ export function SubmitConfirmModal({
           </button>
           <button
             onClick={onConfirm}
-            disabled={submitting}
+            disabled={submitting || !canSubmit}
+            title={canSubmit ? undefined : "Fix the issues above before submitting"}
             className="flex items-center gap-2 rounded-lg bg-brand-primary px-4 py-2 text-sm font-semibold text-white hover:bg-brand-primary-dark disabled:opacity-60"
           >
             {submitting && <Spinner size={14} className="text-white" />}
-            Confirm &amp; Submit
+            {canSubmit ? confirmLabel : "Fix issues to submit"}
           </button>
         </>
       }
@@ -67,6 +73,20 @@ export function SubmitConfirmModal({
         <span className="text-sm font-medium text-brand-primary">Total for the week</span>
         <span className="text-lg font-bold text-brand-primary">{formatHoursMinutes(weekTotalHours)}</span>
       </div>
+
+      {blockingIssues.length > 0 && (
+        <div className="mt-4 space-y-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
+          <p className="flex items-center gap-2 text-sm font-medium text-status-danger">
+            <IconAlertTriangle size={16} />
+            Fix these before you can submit
+          </p>
+          <ul className="ml-6 list-disc space-y-1 text-sm text-rose-700">
+            {blockingIssues.map((w) => (
+              <li key={w}>{w}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {warnings.length > 0 && (
         <div className="mt-4 space-y-2 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3">

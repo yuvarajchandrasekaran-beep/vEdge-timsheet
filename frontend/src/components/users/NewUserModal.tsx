@@ -8,7 +8,10 @@ import { ROLE_LABELS, type RoleName } from "../../types";
 export function NewUserModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { data: departments } = useDepartments();
   const { data: roles } = useRoles();
-  const managersQuery = useUsers({ page: 1, pageSize: 200 });
+  // Always mounted (just hidden) by the Users page — only fetch the manager
+  // picker's directory once this modal is actually about to be shown,
+  // instead of on every visit to the page.
+  const managersQuery = useUsers({ page: 1, pageSize: 200 }, open);
   const createUser = useCreateUser();
 
   const [form, setForm] = useState<Partial<CreateUserInput>>({ role: "INDIVIDUAL_USER" });

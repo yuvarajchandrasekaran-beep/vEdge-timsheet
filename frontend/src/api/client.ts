@@ -62,7 +62,16 @@ apiClient.interceptors.response.use(
 export function getApiErrorMessage(error: unknown, fallback = "Something went wrong. Please try again."): string {
   if (axios.isAxiosError(error)) {
     const data = error.response?.data as ApiError | undefined;
-    if (data?.message) return data.message;
+    if (data?.message) {
+      // VALIDATION_BLOCKED errors (submit/submit-batch) attach the specific
+      // per-entry reasons in `details` — surfacing the first one or two makes
+      // the toast actionable ("This week totals 75h, above the 70h limit…")
+      // instead of just the generic "has unresolved validation errors".
+      const details = Array.isArray(data.details) ? (data.details as { message?: string }[]) : [];
+      const detailMessages = [...new Set(details.map((d) => d.message).filter((m): m is string => !!m))];
+      if (detailMessages.length > 0) return `${data.message} ${detailMessages.slice(0, 2).join(" ")}`;
+      return data.message;
+    }
     if (error.message) return error.message;
   }
   if (error instanceof Error) return error.message;

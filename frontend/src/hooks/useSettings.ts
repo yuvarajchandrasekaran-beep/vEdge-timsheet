@@ -23,6 +23,9 @@ export function useUpdateOrgSettings() {
   });
 }
 
+// Read-only — the approval model is now fixed (single-level, Project Admin
+// only, with Super Admin as a standing fallback), so there's nothing to PUT
+// back; this just describes the current model for the Settings screen.
 export function useApprovalChains() {
   return useQuery({
     queryKey: ["settings", "approval-chains"],
@@ -30,17 +33,6 @@ export function useApprovalChains() {
       const res = await apiClient.get<ApprovalChainStep[]>("/settings/approval-chains");
       return res.data;
     },
-  });
-}
-
-export function useUpdateApprovalChains() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (chains: ApprovalChainStep[]) => {
-      const res = await apiClient.put<ApprovalChainStep[]>("/settings/approval-chains", { chains });
-      return res.data;
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["settings", "approval-chains"] }),
   });
 }
 

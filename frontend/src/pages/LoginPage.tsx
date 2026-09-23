@@ -6,9 +6,12 @@ import { DEMO_ACCOUNTS, DEMO_PASSWORD } from "../data/demoAccounts";
 import { ROLE_LABELS } from "../types";
 import { Avatar } from "../components/common/Avatar";
 import { Spinner } from "../components/common/Spinner";
+import { GoogleSignInButton } from "../components/auth/GoogleSignInButton";
+
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
 
 export default function LoginPage() {
-  const { login, isAuthenticated } = useAuth();
+  const { login, loginWithGoogle, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [email, setEmail] = useState("");
@@ -36,6 +39,19 @@ export default function LoginPage() {
     }
   }
 
+  async function handleGoogleCredential(credential: string) {
+    setError(null);
+    setSubmitting(true);
+    try {
+      await loginWithGoogle(credential);
+      navigate("/dashboard", { replace: true });
+    } catch (err) {
+      setError(getApiErrorMessage(err, "Couldn't sign in with that Google account."));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-[#0B1130] via-[#142F6E] to-[#1B4298] px-4 py-10">
       <div className="grid w-full max-w-4xl gap-6 lg:grid-cols-[1fr_1.1fr]">
@@ -45,6 +61,17 @@ export default function LoginPage() {
             <h1 className="mt-4 text-xl font-bold text-gray-900">TimeSync</h1>
             <p className="mt-1 text-sm text-gray-500">Vivid Edge Integration COE — Timesheets &amp; Approvals</p>
           </div>
+
+          {GOOGLE_CLIENT_ID && (
+            <div className="mb-5">
+              <GoogleSignInButton clientId={GOOGLE_CLIENT_ID} onCredential={handleGoogleCredential} />
+              <div className="my-5 flex items-center gap-3">
+                <div className="h-px flex-1 bg-gray-200" />
+                <span className="text-xs font-medium uppercase tracking-wide text-gray-400">or sign in with email</span>
+                <div className="h-px flex-1 bg-gray-200" />
+              </div>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>

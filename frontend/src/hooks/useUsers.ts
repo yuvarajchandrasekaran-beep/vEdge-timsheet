@@ -11,7 +11,7 @@ export interface UsersQueryParams {
   status?: UserStatus | "";
 }
 
-export function useUsers(params: UsersQueryParams) {
+export function useUsers(params: UsersQueryParams, enabled = true) {
   return useQuery({
     queryKey: ["users", params],
     queryFn: async () => {
@@ -19,6 +19,11 @@ export function useUsers(params: UsersQueryParams) {
       return res.data;
     },
     placeholderData: (prev) => prev,
+    // GET /users is Super Admin / HR Admin / Project Admin only — an
+    // Individual User gets a 403, so callers reachable by that role (e.g.
+    // the read-only project member list anyone can open) must pass
+    // `enabled: false` for them.
+    enabled,
   });
 }
 
@@ -85,9 +90,9 @@ export function useUserImportDryRun() {
     mutationFn: async (file: File) => {
       const form = new FormData();
       form.append("file", file);
-      const res = await apiClient.post<ImportBatch>("/users/import/dry-run", form, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      // Do NOT set Content-Type explicitly — see the identical comment in
+      // useProjects.ts's useProjectImportDryRun.
+      const res = await apiClient.post<ImportBatch>("/users/import/dry-run", form);
       return res.data;
     },
   });

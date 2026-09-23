@@ -17,8 +17,12 @@ interface AuthContextValue {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
+  loginWithGoogle: (credential: string) => Promise<void>;
   logout: () => void;
   hasRole: (...roles: RoleName[]) => boolean;
+  isImpersonating: boolean;
+  impersonate: (userId: string) => Promise<void>;
+  stopImpersonating: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -36,7 +40,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // person once the token changes — without an explicit clear, switching accounts
   // in the same tab (no full page reload) can silently show the previous user's
   // cached data for up to their queries' staleTime (30s by default, 5min for
-  // clients/departments/roles). Clearing on every login/logout/401 closes that gap.
+  // clients/departments/roles). Clearing on every login/logout/401/impersonation
+  // switch closes that gap.
   const logout = useCallback(() => {
     setStoredToken(null);
     setToken(null);
@@ -54,6 +59,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [queryClient]);
 
   // On mount, if a token is persisted, hydrate the user profile via /auth/me.
+  // This also recovers impersonation state (the `impersonation` field) after
+  // a page refresh, so the "return to my account" banner survives reloads.
   useEffect(() => {
     let cancelled = false;
     const existing = getStoredToken();
@@ -94,6 +101,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [queryClient]
   );
 
+  const loginWithGoogle = useCallback(
+    async (credential: string) => {
+      queryClient.clear();
+      const res = await apiClient.post<AuthResponse>("/auth/google", { credential });
+      setStoredToken(res.data.accessToken);
+      setToken(res.data.accessToken);
+      setUser(res.data.user);
+    },
+    [queryClient]
+  );
+
+  const impersonate = useCallback(
+    async (userId: string) => {
+      queryClient.clear();
+      const res = await apiClient.post<AuthResponse>(`/auth/impersonate/${userId}`);
+      setStoredToken(res.data.accessToken);
+      setToken(res.data.accessToken);
+      setUser(res.data.user);
+    },
+    [queryClient]
+  );
+
+  const stopImpersonating = useCallback(async () => {
+    queryClient.clear();
+    const res = await apiClient.post<AuthResponse>("/auth/impersonate/stop");
+    setStoredToken(res.data.accessToken);
+    setToken(res.data.accessToken);
+    setUser(res.data.user);
+  }, [queryClient]);
+
   const hasRole = useCallback(
     (...roles: RoleName[]) => (user ? roles.includes(user.role) : false),
     [user]
@@ -106,10 +143,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAuthenticated: !!token && !!user,
       isLoading,
       login,
+      loginWithGoogle,
       logout,
       hasRole,
+      isImpersonating: !!user?.impersonation,
+      impersonate,
+      stopImpersonating,
     }),
-    [user, token, isLoading, login, logout, hasRole]
+    [user, token, isLoading, login, loginWithGoogle, logout, hasRole, impersonate, stopImpersonating]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

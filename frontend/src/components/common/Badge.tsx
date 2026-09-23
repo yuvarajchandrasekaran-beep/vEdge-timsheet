@@ -44,8 +44,7 @@ const PROJECT_STATUS_TONE: Record<string, BadgeTone> = {
 const TIMESHEET_STATUS_TONE: Record<string, BadgeTone> = {
   DRAFT: "neutral",
   SUBMITTED: "info",
-  APPROVED_L1: "warning",
-  APPROVED_L2: "success",
+  APPROVED: "success",
   REJECTED: "danger",
   RECALLED: "neutral",
 };

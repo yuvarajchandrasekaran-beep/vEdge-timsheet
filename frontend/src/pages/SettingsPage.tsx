@@ -5,7 +5,6 @@ import {
   useBrandingSettings,
   useNotificationRules,
   useOrgSettings,
-  useUpdateApprovalChains,
   useUpdateBrandingSettings,
   useUpdateNotificationRules,
   useUpdateOrgSettings,
@@ -14,7 +13,7 @@ import { useAuditLogs } from "../hooks/useAuditLogs";
 import { usePageHeader } from "../hooks/usePageHeader";
 import { LoadingBlock } from "../components/common/Spinner";
 import { Pagination } from "../components/common/Pagination";
-import { ROLE_LABELS, type ApprovalChainStep, type OrgSettings, type RoleName } from "../types";
+import { ROLE_LABELS, type OrgSettings, type RoleName } from "../types";
 import { formatDateTime } from "../utils/format";
 
 type Tab = "organization" | "approvals" | "notifications" | "branding" | "permissions" | "audit";
@@ -124,51 +123,21 @@ function OrganizationTab() {
 
 function ApprovalChainsTab() {
   const { data, isLoading } = useApprovalChains();
-  const update = useUpdateApprovalChains();
-  const [chains, setChains] = useState<ApprovalChainStep[] | null>(null);
-  const current = chains ?? data ?? [];
 
   if (isLoading) return <LoadingBlock />;
 
   return (
     <Card>
-      <p className="mb-4 text-sm text-gray-500">Define who approves timesheets at each level.</p>
+      <p className="mb-4 text-sm text-gray-500">
+        The approval model is fixed to a single level — there's nothing to configure here.
+      </p>
       <div className="space-y-3">
-        {current.map((step, idx) => (
-          <div key={step.level} className="grid grid-cols-1 items-center gap-3 rounded-xl border border-gray-100 p-3 sm:grid-cols-[80px_180px_1fr]">
-            <span className="text-sm font-semibold text-gray-900">{step.level}</span>
-            <select
-              value={step.approverRole}
-              onChange={(e) => {
-                const next = [...current];
-                next[idx] = { ...step, approverRole: e.target.value as RoleName };
-                setChains(next);
-              }}
-              className="input"
-            >
-              {(["PROJECT_ADMIN", "HR_ADMIN", "SUPER_ADMIN"] as RoleName[]).map((r) => (
-                <option key={r} value={r}>
-                  {ROLE_LABELS[r]}
-                </option>
-              ))}
-            </select>
-            <input
-              value={step.description}
-              onChange={(e) => {
-                const next = [...current];
-                next[idx] = { ...step, description: e.target.value };
-                setChains(next);
-              }}
-              className="input"
-            />
+        {(data ?? []).map((step) => (
+          <div key={step.level} className="rounded-xl border border-gray-100 p-4">
+            <p className="text-sm font-semibold text-gray-900">{ROLE_LABELS[step.approverRole]}</p>
+            <p className="mt-1 text-sm text-gray-500">{step.description}</p>
           </div>
         ))}
-      </div>
-      <div className="mt-4 flex items-center gap-3">
-        <button onClick={() => update.mutate(current)} disabled={update.isPending || current.length === 0} className="btn-primary">
-          Save changes
-        </button>
-        {update.isSuccess && <span className="text-sm text-status-success">Saved.</span>}
       </div>
     </Card>
   );
@@ -268,8 +237,8 @@ const PERMISSION_MATRIX: { area: string; SUPER_ADMIN: boolean; HR_ADMIN: boolean
   { area: "Manage clients/projects", SUPER_ADMIN: true, HR_ADMIN: false, PROJECT_ADMIN: true, INDIVIDUAL_USER: false },
   { area: "View assigned projects", SUPER_ADMIN: true, HR_ADMIN: true, PROJECT_ADMIN: true, INDIVIDUAL_USER: true },
   { area: "Log own timesheet", SUPER_ADMIN: true, HR_ADMIN: true, PROJECT_ADMIN: true, INDIVIDUAL_USER: true },
-  { area: "Approve Level 1 (project team)", SUPER_ADMIN: false, HR_ADMIN: false, PROJECT_ADMIN: true, INDIVIDUAL_USER: false },
-  { area: "Approve Level 2 (final/HR)", SUPER_ADMIN: false, HR_ADMIN: true, PROJECT_ADMIN: false, INDIVIDUAL_USER: false },
+  { area: "Approve timesheets", SUPER_ADMIN: true, HR_ADMIN: false, PROJECT_ADMIN: true, INDIVIDUAL_USER: false },
+  { area: "Add people to projects/tasks", SUPER_ADMIN: true, HR_ADMIN: false, PROJECT_ADMIN: true, INDIVIDUAL_USER: false },
   { area: "View reports & analytics", SUPER_ADMIN: true, HR_ADMIN: true, PROJECT_ADMIN: true, INDIVIDUAL_USER: false },
   { area: "View audit logs", SUPER_ADMIN: true, HR_ADMIN: true, PROJECT_ADMIN: true, INDIVIDUAL_USER: false },
   { area: "System settings", SUPER_ADMIN: true, HR_ADMIN: false, PROJECT_ADMIN: false, INDIVIDUAL_USER: false },
@@ -327,6 +296,7 @@ function AuditLogTab() {
           <option value="Project">Project</option>
           <option value="User">User</option>
           <option value="Approval">Approval</option>
+          <option value="Impersonation">Impersonation</option>
         </select>
       </div>
       {isLoading ? (
@@ -350,7 +320,14 @@ function AuditLogTab() {
                 {data.data.map((log) => (
                   <tr key={log.id} className="border-b border-gray-50 last:border-0">
                     <td className="px-3 py-2.5 text-gray-500">{formatDateTime(log.timestamp)}</td>
-                    <td className="px-3 py-2.5 text-gray-700">{log.actorName}</td>
+                    <td className="px-3 py-2.5 text-gray-700">
+                      {log.actorName}
+                      {log.impersonatedByName && (
+                        <span className="ml-1.5 inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 ring-1 ring-inset ring-amber-200">
+                          as impersonated by {log.impersonatedByName}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-3 py-2.5 text-gray-700">{log.action}</td>
                     <td className="px-3 py-2.5 text-gray-500">
                       {log.entityType} #{log.entityId}

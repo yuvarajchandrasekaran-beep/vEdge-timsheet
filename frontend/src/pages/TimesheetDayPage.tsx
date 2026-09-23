@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { format, parseISO } from "date-fns";
-import { useMyTimesheet, useSaveTimesheetDraft } from "../hooks/useTimesheets";
+import { useMyTimesheet, useSaveTimesheetDraft, useSubmitTimesheet } from "../hooks/useTimesheets";
 import { useProjects } from "../hooks/useProjects";
 import { useDebouncedCallback } from "../hooks/useDebouncedCallback";
 import { getWeekStart } from "../utils/week";
@@ -12,8 +12,12 @@ import { LoadingBlock } from "../components/common/Spinner";
 import { ErrorState } from "../components/common/ErrorState";
 import { EmptyState } from "../components/common/EmptyState";
 import { AddProjectRowTypeahead, type TaskOption } from "../components/timesheet/AddProjectRowTypeahead";
-import { IconArrowLeft, IconCopy, IconTrash } from "../components/common/icons";
+import { CommentOverlay } from "../components/timesheet/CommentOverlay";
+import { TimesheetViewSwitcher } from "../components/timesheet/TimesheetViewSwitcher";
+import { IconArrowLeft, IconCheck, IconCopy, IconTrash } from "../components/common/icons";
 import type { TimesheetEntryInput } from "../hooks/useTimesheets";
+import { useToast } from "../components/common/Toast";
+import { getApiErrorMessage } from "../api/client";
 import clsx from "clsx";
 
 interface DayLine {
@@ -37,6 +41,8 @@ export default function TimesheetDayPage() {
   const timesheetQuery = useMyTimesheet(weekStart);
   const projectsQuery = useProjects({ status: "ACTIVE", page: 1, pageSize: 100 });
   const saveDraft = useSaveTimesheetDraft();
+  const submitMutation = useSubmitTimesheet();
+  const { showToast } = useToast();
 
   const [lines, setLines] = useState<DayLine[]>([]);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -70,6 +76,12 @@ export default function TimesheetDayPage() {
     }
     return opts;
   }, [projectsQuery.data]);
+
+  // Keyed on the line IDs, not `lines` itself, so this stays stable while
+  // typing hours/notes into an existing line (which replaces the `lines`
+  // array but not the set of task IDs in it).
+  const lineIdsKey = lines.map((l) => l.projectTaskId).join(",");
+  const existingProjectTaskIds = useMemo(() => new Set(lines.map((l) => l.projectTaskId)), [lineIdsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const timesheet = timesheetQuery.data;
   const isEditable = !timesheet || ["DRAFT", "RECALLED", "REJECTED"].includes(timesheet.status);
@@ -134,13 +146,15 @@ export default function TimesheetDayPage() {
     const prevDate = format(new Date(new Date(`${date}T00:00:00`).getTime() - 86400000), "yyyy-MM-dd");
     const prevEntries = (timesheet?.entries ?? []).filter((e) => e.entryDate === prevDate);
     if (prevEntries.length === 0) return;
+    // Copy carries over time and project/task only — comments are always
+    // left blank on a copy so they don't get silently duplicated forward.
     const nextLines: DayLine[] = prevEntries.map((e) => ({
       projectTaskId: e.projectTaskId,
       projectId: e.projectId,
       projectName: e.projectName,
       taskName: e.taskName,
       hours: e.hours ? String(e.hours) : "",
-      notes: e.notes ?? "",
+      notes: "",
     }));
     setLines(nextLines);
     debouncedPersist(nextLines);
@@ -155,11 +169,17 @@ export default function TimesheetDayPage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <Link to="/timesheets" className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-brand-primary">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <TimesheetViewSwitcher />
+        <Link
+          to={`/timesheets/weekly?week=${weekStart}`}
+          className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-brand-primary"
+        >
           <IconArrowLeft size={14} />
           Back to week view
         </Link>
+      </div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
         <div className="flex items-center gap-2">
           <input
             type="date"
@@ -176,6 +196,34 @@ export default function TimesheetDayPage() {
               Copy from previous day
             </button>
           )}
+          {isEditable && timesheet && (
+            <button
+              onClick={() => {
+                const issues = timesheet.validation ?? [];
+                const blocking = issues.filter((i) => i.severity === "blocking");
+                if (blocking.length > 0) {
+                  showToast(blocking[0].message, "error");
+                  return;
+                }
+                const warningMessages = [...new Set(issues.filter((i) => i.severity === "warning").map((i) => i.message))];
+                const warningText = warningMessages.length ? `\n\nPlease note:\n- ${warningMessages.join("\n- ")}` : "";
+                if (!confirm(`Submit this whole week for approval? You won't be able to edit it once it's approved.${warningText}`)) return;
+                submitMutation.mutate(
+                  { id: timesheet.id, weekStart },
+                  {
+                    onSuccess: () => showToast("Timesheet submitted for approval.", "success"),
+                    onError: (err) => showToast(getApiErrorMessage(err, "Couldn't submit this timesheet."), "error"),
+                  }
+                );
+              }}
+              disabled={submitMutation.isPending}
+              className="flex items-center gap-1.5 rounded-xl bg-brand-primary px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-primary-dark disabled:opacity-60"
+              title="Submits the entire week this day belongs to, same as Week View's Submit"
+            >
+              <IconCheck size={15} />
+              Submit week
+            </button>
+          )}
         </div>
       </div>
 
@@ -186,6 +234,17 @@ export default function TimesheetDayPage() {
       </div>
 
       <div className="space-y-3">
+        {!isEditable && timesheet && (
+          <div className="rounded-xl bg-amber-50 px-4 py-2.5 text-sm text-amber-800 ring-1 ring-inset ring-amber-200">
+            This week is <strong>{timesheet.status.replace("_", " ").toLowerCase()}</strong> and its entries are locked.
+            {timesheet.status === "SUBMITTED"
+              ? " Recall it from Week View to make changes."
+              : " Ask your approver to reject it (with a comment) to reopen it for edits."}
+          </div>
+        )}
+        <p className="text-xs text-gray-600">
+          Hours are decimal (e.g. <span className="font-medium text-gray-700">7.5</span> = 7h 30m), not clock time — 4.30 means 4 hours 18 minutes, not 4:30.
+        </p>
         {lines.length === 0 && !projectsQuery.isLoading && (
           <EmptyState title="No hours logged for this day" description="Add a project/task below to get started." />
         )}
@@ -199,34 +258,33 @@ export default function TimesheetDayPage() {
                   <p className="text-xs text-gray-500">{line.taskName}</p>
                 </div>
                 <div className="w-24">
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    disabled={!isEditable}
-                    value={line.hours}
-                    title={validation.message}
-                    onChange={(e) => updateLine(line.projectTaskId, { hours: e.target.value })}
-                    placeholder="0.0"
-                    className={clsx(
-                      "h-10 w-full rounded-lg border bg-white text-center text-sm font-medium focus:outline-none focus:ring-1 disabled:bg-gray-50",
-                      validation.level === "error"
-                        ? "border-status-danger ring-status-danger/30"
-                        : validation.level === "warning"
-                          ? "border-status-warning ring-status-warning/20"
-                          : "border-gray-200 focus:border-brand-primary focus:ring-brand-primary"
-                    )}
-                  />
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      disabled={!isEditable}
+                      value={line.hours}
+                      title={validation.message}
+                      onChange={(e) => updateLine(line.projectTaskId, { hours: e.target.value })}
+                      placeholder="0.0"
+                      className={clsx(
+                        "h-10 w-full rounded-lg border bg-white text-center text-sm font-medium focus:outline-none focus:ring-1 disabled:bg-gray-50",
+                        validation.level === "error"
+                          ? "border-status-danger ring-status-danger/30"
+                          : validation.level === "warning"
+                            ? "border-status-warning ring-status-warning/20"
+                            : "border-gray-200 focus:border-brand-primary focus:ring-brand-primary"
+                      )}
+                    />
+                    <CommentOverlay
+                      value={line.notes}
+                      required={(Number(line.hours) || 0) > 8 && !line.notes.trim()}
+                      disabled={!isEditable}
+                      title={`${line.projectName} / ${line.taskName} — ${date}`}
+                      onSave={(next) => updateLine(line.projectTaskId, { notes: next })}
+                    />
+                  </div>
                   <p className="mt-1 text-center text-[11px] text-gray-400">hours</p>
-                </div>
-                <div className="flex-[2]">
-                  <textarea
-                    disabled={!isEditable}
-                    value={line.notes}
-                    onChange={(e) => updateLine(line.projectTaskId, { notes: e.target.value })}
-                    placeholder="What did you work on?"
-                    rows={2}
-                    className="w-full resize-none rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 placeholder:text-gray-400 focus:border-brand-primary focus:outline-none focus:ring-1 focus:ring-brand-primary disabled:bg-gray-50"
-                  />
                 </div>
                 {isEditable && (
                   <button
@@ -246,12 +304,12 @@ export default function TimesheetDayPage() {
       {isEditable && (
         <AddProjectRowTypeahead
           options={taskOptions}
-          excludeIds={new Set(lines.map((l) => l.projectTaskId))}
+          excludeIds={existingProjectTaskIds}
           onAdd={addLine}
         />
       )}
 
-      <div className="flex items-center justify-between text-xs text-gray-400">
+      <div className="flex items-center justify-between text-xs text-gray-600">
         <span>
           Daily total {dayTotalHours.toFixed(2)}h of {DAILY_HOUR_LIMIT}h00m limit
         </span>

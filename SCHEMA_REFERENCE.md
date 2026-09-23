@@ -71,7 +71,7 @@ mapped via `@@map`, to `snake_case` plural table names).
 | roleId | FK → roles | |
 | departmentId | FK → departments, nullable | |
 | jobTitle | String, nullable | |
-| managerId | FK → users, nullable | Self-referencing; org-chart metadata, **not** necessarily the approval-chain L1 approver — see §5 |
+| managerId | FK → users, nullable | Self-referencing; org-chart metadata, **not** used for approval routing — see §5 |
 | status | String | `Active` \| `Inactive` |
 | startDate | DateTime, nullable | |
 | timezone | String | Default `Asia/Kolkata` |
@@ -106,6 +106,8 @@ increment if that's needed.
 | startDate / endDate | DateTime | `endDate` nullable = open-ended |
 | status | String | `ACTIVE` \| `ON_HOLD` \| `ARCHIVED` \| `COMPLETED` |
 | billingType | String | `T_AND_M` \| `FIXED` \| `MANAGED_SERVICES` — the contract type |
+| sendTimesheetToClient | Boolean, default false | Unlocks the "Send timesheet to client" flow (see `client_timesheet_sends` below) |
+| clientContactEmail | String, nullable | Default recipient offered on the client-send review page — editable per send |
 
 There is **no `budgetHours` column and no `projectAdminId` column** on this
 table:
@@ -182,8 +184,8 @@ This is also how project admins are modeled — **not** a singular FK on
 users with the `PROJECT_ADMIN` role — searched via the frontend's
 `UserMultiSelectTypeahead`) and creates one `Project Admin` row per id;
 `POST /projects/:id/members` with `roleOnProject: "Project Admin"` adds one
-later. `utils/scope.ts`'s `assertProjectScope` and the Level 1 approval
-routing (§5) both check this table rather than a scalar field.
+later. `utils/scope.ts`'s `assertProjectScope` and the approval routing (§5)
+both check this table rather than a scalar field.
 
 ### `timesheets` (one per user per week)
 | Column | Type | Notes |
@@ -191,10 +193,15 @@ routing (§5) both check this table rather than a scalar field.
 | id | Int PK | |
 | userId | FK → users | |
 | weekStartDate | DateTime | Always a UTC-midnight Monday — see §6 "Dates are UTC-normalized" |
-| status | String | `DRAFT` \| `SUBMITTED` \| `APPROVED_L1` \| `APPROVED_L2` \| `REJECTED` \| `RECALLED` |
-| weekNotes | String, nullable | Free-text "notes for the week" |
+| status | String | `DRAFT` \| `SUBMITTED` \| `APPROVED` \| `REJECTED` \| `RECALLED` |
+| weekNotes | String, nullable | Free-text "notes for the week" — also doubles as the Monthly/Fortnight views' period-level comments box, written to every week in the period |
 | submittedAt | DateTime, nullable | |
 | — | unique(userId, weekStartDate) | |
+
+The Monthly and Fortnight *views* are a frontend-only aggregation — there is
+no separate "period" table. A calendar month or fortnight is just several of
+these weekly rows rendered together; `POST /timesheets/submit-batch` submits
+several at once, but each is still approved independently (§5).
 
 ### `timesheet_entries` (one row per project/task per day)
 | Column | Type | Notes |
@@ -212,7 +219,7 @@ routing (§5) both check this table rather than a scalar field.
 |---|---|---|
 | id | Int PK | |
 | timesheetId | FK → timesheets | |
-| level | Int | `1` or `2` |
+| level | Int | Always `1` now — vestigial column kept for existing history rows from before approval was simplified to a single level |
 | approverId | FK → users | |
 | action | String | `APPROVED` \| `REJECTED` |
 | comment | String, nullable | Required by the API on reject, optional on approve |
@@ -294,13 +301,45 @@ scheduler doesn't consult it yet. Wiring that up is required before Section
 | date | DateTime | |
 | departmentId | FK → departments, nullable | Null = org-wide |
 
+Maintained from `/holidays` (HR Admin & Super Admin only; everyone else gets
+read access, since `validateWeekSubmission` needs it to warn on holiday
+entries for any user). `services/usFederalHolidays.ts`'s
+`computeUsFederalHolidays(year)` computes the 11 US federal holidays for a
+given year — including the standard weekend-observance shift (Saturday →
+preceding Friday, Sunday → following Monday) — and `POST
+/holidays/sync-federal` upserts whatever's missing for that year. The seed
+script calls this for the current and next year so a fresh clone has holiday
+warnings working immediately.
+
+### `client_timesheet_sends` (append-only send history)
+| Column | Type | Notes |
+|---|---|---|
+| id | Int PK | |
+| projectId | FK → projects | |
+| sentById | FK → users | |
+| recipientEmail | String | Asked again at send time, pre-filled from `projects.clientContactEmail` |
+| periodStart / periodEnd | DateTime | The reviewed date range |
+| entryIds | String | Comma-separated `timesheet_entries.id` list — the exact entries sent, used to regenerate the file on download |
+| entryCount | Int | |
+| totalHours | Float | |
+| fileName | String | |
+| createdAt | DateTime | |
+
+Written by `POST /projects/:id/client-send` (Project Admin of that project,
+or Super Admin). There's no live email provider wired up in this build (see
+README "Swap points") — "sending" is a logged placeholder, same pattern as
+`notify.ts`, but the row above and the file itself are real: `GET
+/client-sends/:id/download` regenerates the exact `.xlsx` from the recorded
+`entryIds` on demand rather than storing the file's bytes.
+
 ### `organization_settings` / `approval_chain_configs`
-Singleton-ish configuration tables backing `/settings/organization`,
-`/settings/branding`, and `/settings/approval-chains`. `approval_chain_configs`
-is written by the settings API but — like `delegations` — **not yet read** by
-`services/approvalRouting.ts`; the default chain (Project Admin → HR Admin) is
-hardcoded there. Wiring per-project/department overrides is the natural next
-increment for spec Section 3.3.
+Singleton-ish configuration tables backing `/settings/organization` and
+`/settings/branding`. `approval_chain_configs` still exists (kept for its
+historical rows) but is no longer written to or read by
+`services/approvalRouting.ts` — approval is now a fixed single level (Project
+Admin, with Super Admin as a standing fallback; see §5), not a configurable
+chain. `GET /settings/approval-chains` is a read-only endpoint describing
+that fixed model for the Settings screen.
 
 ---
 
@@ -350,35 +389,52 @@ No application code depends on SQLite-specific behavior.
   calls this out as needing a final provider decision before it can be built;
   the auth module is isolated enough (`routes/auth.ts` + `middleware/auth.ts`)
   that adding an OAuth/SAML strategy alongside password login doesn't require
-  touching the rest of the app.
+  touching the rest of the app. Don't confuse this with **Sign in with
+  Google** (`POST /auth/google`, `google-auth-library`), which *is*
+  implemented — it's a per-user alternate credential that verifies a Google
+  ID token and links to an existing TimeSync account by matching email, not
+  directory-level SSO: it doesn't provision accounts, sync roles, or accept
+  every Google Workspace user, and it's inert unless `GOOGLE_CLIENT_ID` (and
+  the frontend's `VITE_GOOGLE_CLIENT_ID`) is configured.
 
 ## 5. Approval routing (as actually implemented)
 
-`services/approvalRouting.ts` computes approvers per timesheet rather than
-reading a fixed org chart:
+Approval is single-level: every timesheet is reviewed and approved by a
+**Project Admin**, full stop — there is no second/final tier, and HR Admin
+has no approval role at all. `services/approvalRouting.ts`'s
+`resolveApprover` computes the approver set per timesheet rather than reading
+a fixed org chart:
 
-- **Level 1** = the admin(s) — plural; a project can have several — of the
-  project referenced by the most entries on the timesheet (if a week spans
-  several projects with different admins, this "most-frequent project" pick
-  is a simplification worth revisiting). Any one of that project's admins
-  may act; `resolveLevel1Approver` returns `approverIds: number[]` rather
+- The approver set = the admin(s) — plural; a project can have several — of
+  the project referenced by the most entries on the timesheet (if a week
+  spans several projects with different admins, this "most-frequent project"
+  pick is a simplification worth revisiting). Any one of that project's
+  admins may act; `resolveApprover` returns `approverIds: number[]` rather
   than a single id.
-- If the submitting user *is* one of that project's admins (i.e., a Project
-  Admin submitting their own time on a project they administer), Level 1 is
-  auto-recorded as approved (comment: "Auto-approved: submitter is a
-  Project Admin...") and the timesheet goes straight to the Level 2 (HR
-  Admin) queue. This avoids a meaningless self-approval step while still
-  producing a real `approvals` row for the audit trail.
-- **Level 2** = the first active `HR_ADMIN` user found (org-wide, single
-  final approver pool — there's exactly one in the seed data, Shibani
-  Gandhi). If a deployment needs multiple HR Admins load-balanced or department-scoped,
-  `resolveLevel2Approver` is the one function to change.
+- **Self-approval**: if the submitting user *is* one of the resolved admins
+  for their winning project (i.e., a Project Admin submitting their own time
+  on a project they administer), the timesheet is auto-approved at submit
+  time (comment: "Auto-approved: submitter is a Project Admin for all logged
+  projects.") — see `performSubmit` in `routes/timesheets.ts`. Note this
+  fires even if the project has *other* co-admins too — "the Project Admin
+  is alone entering time" is interpreted here as "the submitter is one of
+  the project's admins," not "the submitter is literally the only person who
+  has ever logged time on it." A stricter reading is a small change to
+  `resolveApprover`'s `selfAdministered` calculation if the looser one turns
+  out to be wrong in practice.
+- **Super Admin** can always act as a fallback approver on any timesheet
+  (`doApprove`/`doReject` in `routes/approvals.ts` special-case the
+  `SUPER_ADMIN` role), and is who `jobs/scheduler.ts`'s reminder sweep
+  escalates to when a timesheet has no resolvable Project Admin or has been
+  pending too long.
 - `manager_id` on `users` is **not** used for approval routing — it's
   descriptive org-chart data only, surfaced in the user profile.
 
-This is the extension point for spec 3.3's "chain is configurable per project
-or department" — `approval_chain_configs` already exists as a table and a
-settings API; `approvalRouting.ts` just doesn't consult it yet.
+`approval_chain_configs` still exists as a table (kept for its historical
+rows) and `GET /settings/approval-chains` still exists as a read-only
+endpoint describing this fixed model, but there is no more `PUT` — nothing
+about the approval chain is configurable anymore; it's intentionally fixed
+to "Project Admin, with Super Admin as a standing fallback."
 
 ## 6. Validation engine
 
@@ -403,6 +459,30 @@ which cells didn't save and why. `POST /timesheets/{id}/submit` re-validates
 the full week and refuses to submit (400, `VALIDATION_BLOCKED`) if any
 blocking issue remains — matching spec 4.3.2's "Blocking at submit" row for
 the missing-note case.
+
+**Submit-time-only checks** (`validateWeekSubmission`, `hasRequiredComment` /
+`commentRequiredIssue`) run in addition to the table above, but deliberately
+*not* on the autosave PUT — they'd otherwise block drafting mid-week before
+the whole picture is in:
+
+| Code | Severity | Rule |
+|---|---|---|
+| `WEEKLY_MAX_EXCEEDED` | blocking | Week total > `WEEKLY_HOUR_POLICY.MAX_HOURS` (70h) — cannot submit until fixed |
+| `WEEKLY_HIGH_TOTAL` | warning | Week total > `WEEKLY_HOUR_POLICY.WARNING_THRESHOLD` (50h) — "double check before submitting," can still submit |
+| `HOLIDAY_ENTRY` | warning | Any submitted entry falls on a `holidays` row — "is this legit," can still submit |
+| `COMMENT_REQUIRED` | blocking | No entry has a note AND no week has `weekNotes` set, anywhere in the submission |
+
+Under or over the 40h standard week is deliberately **not** flagged either
+way — see `constants/enums.ts`'s `WEEKLY_HOUR_POLICY`.
+
+`COMMENT_REQUIRED` is evaluated once across the **whole submission batch**,
+not per week: `POST /timesheets/submit-batch` (used by the Monthly/Fortnight
+views to submit several weeks together) unions every week's entries and
+`weekNotes` before checking, so one comment anywhere in the batch satisfies
+it for every week in that batch. A single-week `POST
+/timesheets/{id}/submit` checks only that week's own entries/notes. All
+other submit-time checks (weekly max/high-total, holiday) are still
+evaluated per week even inside a batch submit.
 
 **Dates are UTC-normalized.** Every date-only value (`weekStartDate`,
 `entryDate`, import file dates) is stored and compared as UTC midnight. Do not
@@ -471,10 +551,15 @@ clients still must pick one client explicitly, same as everyone else.
 - `csv` — hand-rolled (`services/excel.ts#rowsToCsv`), no dependency needed.
 - `xlsx` — via SheetJS (`services/excel.ts#buildWorkbookFromRows`), real
   spreadsheet data (spec 4.6.3: "not just an image").
-- `pdf` — via `pdfkit`, a simple print-ready table. It is intentionally basic
-  (monospace-ish column layout, first 500 rows) — swapping in a proper
-  templated PDF (headers/footers, pagination, branding) is a good next
-  increment if these get handed to external stakeholders.
+- `pdf` — via `pdfkit`, rendered by `services/pdfTable.ts#renderPdfTable`: a
+  proper bordered table with a colored, humanized header row (`employeeId` →
+  "Employee ID", etc. — see `HEADER_OVERRIDES`), zebra-striped rows,
+  word-wrapped cells with dynamically computed row heights, column widths
+  measured from actual glyph widths so a column is never narrower than its
+  widest single word (avoids mid-word wrapping), and pagination with a
+  repeating header row (first 500 rows, with a footer note if truncated).
+  Dates are formatted via `formatDateTime` (e.g. "Sep 10, 2026, 11:48 PM")
+  rather than a raw `Date.toString()` dump.
 
 Scheduled delivery (`POST /reports/{key}/schedule`) records the schedule as a
 `notification_rules` row but does not (and cannot, without an email provider —
@@ -514,7 +599,7 @@ be normalized by hand in its route if it deliberately doesn't.
 |---|---|
 | Auth, RBAC, project-scoped permissions | Real |
 | Weekly grid autosave, validation engine, submit/recall | Real |
-| Two-level approval, bulk-approve, reject-with-comment, audit trail | Real |
+| Single-level approval, bulk-approve, reject-with-comment, audit trail | Real |
 | Excel bulk import (users & projects), dry-run/preview/partial-commit | Real |
 | Reports (6 standard reports), CSV/XLSX/PDF export | Real |
 | In-app notification center (read/unread) | Real |

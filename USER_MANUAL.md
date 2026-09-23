@@ -7,48 +7,88 @@ document, read **Section 1** — it covers the weekly habit every employee
 needs, and it's designed to take you well under a minute once you know it.
 
 Your available menu items and screens depend on your role — see
-**Section 8** for a summary of who can do what.
+**Section 9** for a summary of who can do what.
 
 **Finding your way around**: the left sidebar lists Dashboard, Timesheets,
-Approvals, Reports, Projects, and Users, in that order — the items you'll use
-most often are near the top. Super Admins additionally get a **Settings**
-link pinned at the very bottom of the sidebar, below a divider. Two things
-live in the top bar instead of the sidebar: your notifications (the bell
-icon, top right) and logging out (click your name/avatar, top right, for
-Logout).
+Approvals, Reports, Projects, Users, and Holiday Calendar, in that order —
+the items you'll use most often are near the top. Super Admins additionally
+get a **Settings** link pinned at the very bottom of the sidebar, below a
+divider. Two things live in the top bar instead of the sidebar: your
+notifications (the bell icon, top right) and logging out (click your
+name/avatar, top right, for Logout).
 
 ---
 
 ## 1. Logging your time (every employee)
 
-### 1.1 The weekly grid
+### 1.1 Four views, one set of data
 
-Click **Timesheets** in the left sidebar. You'll see one row per project or
-task you're assigned to, and one column per day of the week (Monday–Sunday),
-with a running total column on the right and a total row at the bottom.
+Click **Timesheets** in the left sidebar. A tab strip at the top lets you
+switch between four views of the same underlying data — entering an hour in
+one view shows up in all the others immediately:
 
-- **Enter hours**: click a cell and type a number. Use **Tab**, **Shift+Tab**,
-  or the arrow keys to move between cells without touching the mouse; press
-  **Enter** to commit a value and move down.
-- **Paste from Excel**: copy a row of numbers from a spreadsheet and paste it
-  directly into the grid.
+- **Monthly** (the default view when you open Timesheets) — every week that
+  falls in the selected calendar month, stacked as a series of weekly grids,
+  with one shared comments box and one Submit button for the whole month.
+- **Fortnight** — the same idea over two consecutive weeks.
+- **Weekly** — one week's grid, the most detailed view, with its own Submit.
+- **Daily** — one day at a time as a simple list (handy on mobile).
+
+Each week within the Monthly/Fortnight views is still its own week for
+approval purposes — submitting a month submits every week in it together, but
+each week is reviewed and approved on its own.
+
+**Compact view**: Monthly and Fortnight views hide Saturday/Sunday columns by
+default to save space. Click **Compact view** in the toolbar to toggle
+weekends back on — the setting is remembered on your device for next time.
+Hiding weekend columns only affects what's shown; hours already logged on a
+weekend still count toward your totals and warnings either way.
+
+### 1.2 The grid
+
+You'll see one row per project or task you're assigned to, and one column per
+day, with a running total column on the right and a total row at the bottom.
+
+- **Enter hours**: click a cell and type a number. Use the arrow keys or
+  **Enter** to move between cells without touching the mouse.
 - **Add a project row**: use the search box above the grid to find and add a
-  project/task you're assigned to but that isn't showing yet. Your most
-  recently used and favorited projects are pinned to the top so you rarely
-  need to search.
-- **Notes**: click the note icon on a cell (or the row) to add context on
-  what you worked on. A note becomes **required** if you log more than 8
-  hours in a single entry, or if a project is configured to require one —
-  you'll see this flagged before you can submit.
+  project/task you're assigned to but that isn't showing yet.
+- **Comments**: a small comment icon sits next to every hours box. Click it
+  to open a small overlay window and type what that entry was for — the
+  comment stays with that specific entry (nothing is shown inline in the
+  grid until you open it, keeping the grid uncluttered). A comment becomes
+  **required** on any entry over 8 hours; the icon turns red until you add
+  one.
+- **Comments for this period**: Monthly, Fortnight, and Weekly views each
+  also have one comments box at the bottom for overall context on the whole
+  period — this is where the "at least one comment somewhere" rule (below)
+  is easiest to satisfy in one shot.
 - **Autosave**: everything you type saves as a draft automatically within a
-  couple of seconds — watch for the small save indicator near the top of the
-  grid. You can close the tab mid-entry and pick up exactly where you left
-  off later.
-- **Copy Last Week**: if your project mix repeats week to week, use this to
-  pre-fill this week's rows from last week's projects (hours start at zero —
-  it copies your project list, not your hours).
+  couple of seconds — watch for the small save indicator. You can close the
+  tab mid-entry and pick up exactly where you left off later.
+- **Copy feature**: every view has a **Copy** button ("Copy Last Week", "Copy
+  previous fortnight", "Copy previous month", "Copy from previous day") that
+  pre-fills the current period from the immediately preceding period of the
+  same length — hours and the project/task list carry over, but **comments
+  are always left blank** so you're not accidentally forwarding an old note.
 
-### 1.2 What the colors mean
+### 1.3 Mandatory conditions
+
+The system enforces a few rules on top of your own project's hour caps:
+
+| Condition | What happens |
+|---|---|
+| Under or over the standard 40h week | Nothing — this is fine on its own, no warning. |
+| A week totals **over 50 hours** | A warning at submit time asking you to double-check — you can still submit. |
+| A week totals **over 70 hours** | **Blocked.** You cannot submit until you fix the entries. |
+| Time logged on a US federal holiday | A warning at submit time asking you to confirm the entry is legitimate — you can still submit. |
+| No comment anywhere in the submission | **Blocked.** At least one comment — on any single entry, or in the period's comments box — is required before you can submit; even one comment for one day is enough. |
+
+These checks run per calendar week (Mon–Sun) regardless of which view you
+used to enter the time, and the same rules apply whether you're submitting
+one week or a whole Monthly/Fortnight batch at once.
+
+### 1.4 What the colors mean
 
 The grid checks your entries as you type, before you ever hit submit:
 
@@ -58,26 +98,22 @@ The grid checks your entries as you type, before you ever hit submit:
 | Amber highlight | **Warning.** Unusually high total for one day across all your projects (e.g. over 12 hours) — you can proceed, but confirm it's intentional. |
 | A cell that won't save | Usually a missing required note on a large entry — add the note and it will save. |
 
-### 1.3 Submitting your week
+### 1.5 Submitting
 
-When your week looks right, click **Submit**. You'll see a summary of total
-hours by project and any flagged items before you confirm. Once submitted,
-your status moves to **Submitted**, and it heads to your Level 1 approver.
+When your period looks right, click **Submit**. You'll see a summary of
+total hours, any warnings (over 50h, a holiday entry), and — if something is
+blocking (over 70h, or no comment anywhere) — exactly what to fix, before you
+can confirm. Once submitted, your status moves to **Submitted** and it heads
+to your approver (see Section 2).
 
-- **Changed your mind?** As long as your Level 1 approver hasn't acted on it
-  yet, click **Recall** to pull it back to Draft and keep editing.
-- **Once Level 1 approves**, your entries lock — you can no longer edit them
-  yourself. If something needs to change at that point, ask your approver to
-  reject it (with a comment explaining why), which reopens it for editing.
+- **Changed your mind?** As long as your approver hasn't acted on it yet,
+  click **Recall** (from Weekly view) to pull that week back to Draft and
+  keep editing.
+- **Once approved**, a week's entries lock — you can no longer edit them
+  yourself. If something needs to change, ask your approver to reject it
+  (with a comment explaining why), which reopens it for editing.
 
-### 1.4 Day View
-
-If you'd rather enter time one day at a time (e.g. on mobile), switch to
-**Day View** from the Timesheets screen. It shows the same projects as a
-simple list with one hours field and one note field each, plus your daily
-total against your daily limit.
-
-### 1.5 Your dashboard
+### 1.6 Your dashboard
 
 The **Dashboard** (your home screen) shows this week's status at a glance:
 total hours logged, hours remaining against a standard week, your top
@@ -87,44 +123,43 @@ last several weeks so you can spot a missing or rejected week quickly.
 
 ---
 
-## 2. Approving timesheets (Project Admins & HR Admins)
+## 2. Approving timesheets (Project Admins & Super Admin)
 
-Every submitted timesheet goes through exactly two approvals before it's
-final: **Level 1** (your Project Admin) and **Level 2** (HR Admin). Neither
-level can be skipped, and both are enforced by the system — not just the
-screen you're looking at.
+Every submitted timesheet goes through exactly **one** approval: the
+**Project Admin** of the project it logs the most time against. There is no
+second/final tier — HR Admin does not approve timesheets. Super Admin can
+always act as a fallback approver on any timesheet.
+
+- **Self-approval**: if a Project Admin is the only person logging time
+  against their own project (i.e. they're one of the resolved approvers for
+  their own submission), their timesheet is **approved automatically** the
+  moment they submit it — there's no one else who could meaningfully review
+  it.
 
 ### 2.1 The Approvals inbox
 
 Click **Approvals**. You'll see every timesheet currently waiting on you,
 with the employee, the week, total hours, when it was submitted, and how many
-days it's been pending. Filter by project, department, or how long something
-has been waiting.
+days it's been pending. Filter by department or how long something has been
+waiting.
 
-- **Approve**: click the checkmark. Optionally leave a comment.
+- **Approve**: click the checkmark. Optionally leave a comment. This is
+  final — the employee gets an immediate confirmation and the data is now
+  considered settled for reporting purposes.
 - **Reject**: click the X. A comment is **required** — the submitting
   employee sees it immediately along with which entries were flagged, and
   their timesheet reopens for edits.
-- **Bulk approve**: for straightforward weeks that don't need line-by-line
-  review, select multiple rows and approve them together.
+- **Bulk approve / bulk reject**: for straightforward weeks that don't need
+  line-by-line review, select multiple rows and act on them together.
 - **Delegate**: heading out on leave? Nominate a temporary proxy to cover
   your queue without permanently handing off your approval responsibilities.
 
-### 2.2 What happens after you approve
+### 2.2 SLA and escalation
 
-- If you're a **Project Admin (Level 1)** and you approve, the timesheet
-  moves to the HR Admin's Level 2 queue.
-- If you're an **HR Admin (Level 2)** and you approve, the timesheet is
-  **finally approved** — the employee gets an immediate confirmation, and the
-  data is now considered settled for reporting purposes.
-
-### 2.3 SLA and escalation
-
-Every pending item shows how many days it's been sitting in a queue. If
-something sits too long (the org's configured threshold), the system
-automatically emails a nudge to the approver and a courtesy notice to their
-manager or HR — so a stalled approval doesn't depend on someone remembering
-to chase it.
+Every pending item shows how many days it's been sitting in a queue. If a
+timesheet has no resolvable Project Admin, or sits too long (the org's
+configured threshold), the system automatically notifies every Super Admin
+so a stalled approval doesn't depend on someone remembering to chase it.
 
 ---
 
@@ -157,13 +192,27 @@ Click **Projects**. This screen has two tabs: **Projects** and **Clients**.
 - **A project can have more than one admin**: from a project's **Members**
   tab, the "Project admins" section lists everyone administering it, lets
   you search-and-add another, and remove one (a project must always keep at
-  least one). Any of a project's admins can act as its Level 1 timesheet
-  approver.
+  least one). Any of a project's admins can approve its timesheets.
+- **Only a project's own Project Admin (or Super Admin) can add people** to
+  that project or its tasks — this applies to both the "Project admins" and
+  "Members" sections. Anyone else can still view the Members tab, but won't
+  see the add/remove controls.
 - **Team members**: from a project's **Members** tab, assign the people who
   can log time against it. You can also set an individual's maximum hours
   per day/week on this project here (e.g. capping a part-time engagement at
   20h/week) — this cap is what powers the red-cell blocking rule employees
   see in their grid.
+- **Sending timesheets to the client**: from a project's **Overview** tab,
+  check **"Send timesheets to the client for this project"** and enter the
+  client's contact email. This unlocks a **Send timesheet to client…** link
+  that opens a review page: pick the period, see every logged entry across
+  all users for that project (all selected by default, with the option to
+  deselect a few), then send. The recipient email is asked for again at send
+  time (pre-filled from the project setting, but editable), and everything
+  selected is sent as a single file. There's no live email provider wired up
+  in this build — sending is logged as a real, downloadable audit record
+  (who sent what, to whom, and the exact file) rather than an actual inbox
+  delivery; see the README's "Swap points" for wiring in a real provider.
 - **Archived / out-of-window projects** become read-only for new time entry
   but stay fully visible in historical reports. A project's status is one of
   Active, On-Hold, Archived, or Completed.
@@ -184,11 +233,37 @@ Click **Users**.
 - **Deactivate / reactivate**: deactivating blocks new time entry but keeps
   the person's history and audit trail intact — nothing is deleted.
 - **Roles**: see the Roles tab for the four available roles and what each can
-  do (also summarized in Section 8 below).
+  do (also summarized in Section 9 below).
+- **Impersonate** (Super Admin only): click **Impersonate** next to any other
+  active user to sign in as them — useful for reproducing what an employee
+  sees without needing their password. A persistent amber banner stays on
+  screen the whole time naming who you're impersonating and who started it;
+  click **Return to my account** in that banner to end it. Every action taken
+  while impersonating is attributed to the impersonated user in the audit
+  trail, with the Super Admin recorded as the actor behind it.
 
 ---
 
-## 5. Bulk uploading users or projects (Excel)
+## 5. Holiday Calendar (HR Admin & Super Admin)
+
+Click **Holiday Calendar**. This is the company's list of holidays — it
+powers the "you're logging time on a holiday" warning employees see when
+submitting (Section 1.3).
+
+- **Synced with the US federal calendar by default**: pick a year and click
+  **Sync US federal holidays for &lt;year&gt;** to add that year's 11 US
+  federal holidays (New Year's Day, MLK Day, Washington's Birthday, Memorial
+  Day, Juneteenth, Independence Day, Labor Day, Columbus Day, Veterans Day,
+  Thanksgiving, and Christmas). A holiday that falls on a weekend is filed
+  under its actual observed weekday, matching how the US government
+  publishes it. Syncing is safe to repeat — it only adds what's missing, it
+  never duplicates or overwrites a holiday you've already customized.
+- **Add / edit / delete**: use these to add a company-specific holiday (e.g.
+  a Founder's Day) or adjust a synced one.
+
+---
+
+## 6. Bulk uploading users or projects (Excel)
 
 Instead of entering people or projects one at a time, use **Bulk Upload**
 from the Users or Projects screen:
@@ -206,7 +281,7 @@ from the Users or Projects screen:
 
 ---
 
-## 6. Reports & analytics (Project Admin, HR Admin, Super Admin)
+## 7. Reports & analytics (Project Admin, HR Admin, Super Admin)
 
 Click **Reports**. Pick a report type, a date range, and any filters (client,
 project, department, user, status), then **Generate**.
@@ -217,7 +292,7 @@ Available reports:
 |---|---|
 | Timesheet Summary | Hours by user, project, client, and date, drillable down to individual entries |
 | Project Utilization vs. Budget | Actual hours logged against a project's budgeted hours |
-| Approval Compliance | How long approvals are taking at each level, and current SLA breaches |
+| Approval Compliance | How long approvals are taking, who decided each one, and current SLA breaches |
 | Missing Timesheet | Who hasn't submitted for a given period, and how overdue they are |
 | Overtime | Entries exceeding your configured daily/weekly thresholds |
 | Audit Trail | Every create/update/approve/reject action, with who and when (Super Admin only) |
@@ -243,7 +318,7 @@ the README's "Swap points" section for what's needed to make it real.
 
 ---
 
-## 7. Notifications
+## 8. Notifications
 
 The bell icon in the top bar shows your in-app notifications — submission
 reminders, approvals waiting on you, rejections (with the approver's
@@ -256,16 +331,17 @@ alongside your notification list there.
 
 ---
 
-## 8. Who can do what
+## 9. Who can do what
 
 | Capability | Super Admin | HR Admin | Project Admin | Individual User |
 |---|:---:|:---:|:---:|:---:|
-| Enter & submit own timesheet | | | ✅ | ✅ |
-| Approve — Level 1 | | | ✅ | |
-| Approve — Level 2 (final) | | ✅ | | |
+| Enter & submit own timesheet | ✅ | ✅ | ✅ | ✅ |
+| Approve timesheets | ✅ (fallback) | | ✅ (own projects) | |
 | Manage users (incl. bulk) | ✅ | ✅ | | |
 | Manage clients/projects/tasks | ✅ | view only | ✅ (own) | view (assigned) |
-| Assign users to projects | ✅ | view only | ✅ (own projects) | |
+| Add people to a project / its tasks | ✅ | | ✅ (own projects only) | |
+| Maintain the Holiday Calendar | ✅ | ✅ | | |
+| Enable/send client timesheets | ✅ | | ✅ (own projects) | |
 | View reports | all, org-wide | all, org-wide | own projects | own data only |
 | Export reports | ✅ | ✅ | ✅ (own projects) | own data only |
 | System/security configuration | ✅ | | | |
@@ -273,7 +349,7 @@ alongside your notification list there.
 
 ---
 
-## 9. Getting help
+## 10. Getting help
 
 If something looks wrong — a project you should be assigned to is missing, a
 cap seems misconfigured, or an approval seems stuck — your first stop is your

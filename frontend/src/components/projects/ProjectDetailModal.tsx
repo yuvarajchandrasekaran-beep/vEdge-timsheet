@@ -1,4 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { Link } from "react-router-dom";
+import { useAuth } from "../../hooks/useAuth";
 import { Modal } from "../common/Modal";
 import { LoadingBlock } from "../common/Spinner";
 import { ErrorState } from "../common/ErrorState";
@@ -41,7 +43,6 @@ export function ProjectDetailModal({
   const deleteTask = useDeleteProjectTask();
   const addMember = useAddProjectMember();
   const removeMember = useRemoveProjectMember();
-  const usersQuery = useUsers({ page: 1, pageSize: 200 });
 
   const [newTaskName, setNewTaskName] = useState("");
   const [newTaskHours, setNewTaskHours] = useState("");
@@ -50,6 +51,21 @@ export function ProjectDetailModal({
   const [memberError, setMemberError] = useState<string | null>(null);
   const [taskError, setTaskError] = useState<string | null>(null);
   const project = projectQuery.data;
+
+  const admins = project?.members.filter((m) => m.roleOnProject === "Project Admin") ?? [];
+  const regularMembers = project?.members.filter((m) => m.roleOnProject !== "Project Admin") ?? [];
+
+  // Only the project's own Project Admin(s), or a Super Admin, can add
+  // people to the project or its tasks — mirrors the backend's
+  // assertProjectScope + requireRole checks (see routes/projects.ts).
+  // Everyone else can still view this modal, just without the controls that
+  // would otherwise 403.
+  const { user, hasRole } = useAuth();
+  const canManage = hasRole("SUPER_ADMIN") || (hasRole("PROJECT_ADMIN") && admins.some((a) => a.userId === user?.id));
+  // GET /users 403s for anyone who isn't Super Admin/HR Admin/Project Admin —
+  // only fetch the directory when the add-member controls (gated on
+  // canManage) can actually be shown.
+  const usersQuery = useUsers({ page: 1, pageSize: 200 }, !!projectId && canManage);
 
   function removeTask(taskId: string, taskName: string) {
     if (!project) return;
@@ -60,9 +76,6 @@ export function ProjectDetailModal({
       { onError: (err) => setTaskError(getApiErrorMessage(err)) }
     );
   }
-
-  const admins = project?.members.filter((m) => m.roleOnProject === "Project Admin") ?? [];
-  const regularMembers = project?.members.filter((m) => m.roleOnProject !== "Project Admin") ?? [];
 
   function removeMemberSafely(userId: string, roleOnProject: string) {
     if (!project) return;
@@ -142,6 +155,41 @@ export function ProjectDetailModal({
                     ))}
                   </select>
                 </label>
+              </div>
+
+              <div className="border-t border-gray-100 pt-4">
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Client billing</h3>
+                <label className="mb-3 flex items-center gap-2 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={project.sendTimesheetToClient ?? false}
+                    onChange={(e) => updateProject.mutate({ id: project.id, patch: { sendTimesheetToClient: e.target.checked } })}
+                    className="h-4 w-4 rounded border-gray-300"
+                  />
+                  Send timesheets to the client for this project
+                </label>
+                {project.sendTimesheetToClient && (
+                  <div className="space-y-3">
+                    <label className="block text-sm">
+                      <span className="mb-1 block font-medium text-gray-700">Client contact email</span>
+                      <input
+                        type="email"
+                        defaultValue={project.clientContactEmail ?? ""}
+                        placeholder="billing@client.com"
+                        className="input"
+                        onBlur={(e) =>
+                          updateProject.mutate({ id: project.id, patch: { clientContactEmail: e.target.value.trim() || null } })
+                        }
+                      />
+                    </label>
+                    <Link
+                      to={`/projects/${project.id}/client-send`}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
+                    >
+                      Send timesheet to client…
+                    </Link>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -242,32 +290,36 @@ export function ProjectDetailModal({
                         <Avatar name={m.userName ?? m.userId} size="sm" />
                         <p className="text-sm font-medium text-gray-800">{m.userName ?? m.userId}</p>
                       </div>
-                      <button
-                        onClick={() => removeMemberSafely(m.userId, m.roleOnProject)}
-                        disabled={admins.length <= 1}
-                        title={admins.length <= 1 ? "A project must have at least one admin" : "Remove admin"}
-                        className="rounded-lg p-1.5 text-gray-300 hover:bg-rose-50 hover:text-status-danger disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
-                        aria-label="Remove admin"
-                      >
-                        <IconTrash size={15} />
-                      </button>
+                      {canManage && (
+                        <button
+                          onClick={() => removeMemberSafely(m.userId, m.roleOnProject)}
+                          disabled={admins.length <= 1}
+                          title={admins.length <= 1 ? "A project must have at least one admin" : "Remove admin"}
+                          className="rounded-lg p-1.5 text-gray-300 hover:bg-rose-50 hover:text-status-danger disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                          aria-label="Remove admin"
+                        >
+                          <IconTrash size={15} />
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
-                <div className="mt-2">
-                  <UserMultiSelectTypeahead
-                    users={(usersQuery.data?.data ?? [])
-                      .filter((u) => !admins.some((a) => a.userId === u.id))
-                      .map((u) => ({ id: u.id, name: u.name, department: u.department }))}
-                    selectedIds={[]}
-                    onChange={(ids) => {
-                      const userId = ids[0];
-                      if (!userId) return;
-                      addMember.mutate({ projectId: project.id, userId, roleOnProject: "Project Admin" });
-                    }}
-                    placeholder="Search people to add as an admin…"
-                  />
-                </div>
+                {canManage && (
+                  <div className="mt-2">
+                    <UserMultiSelectTypeahead
+                      users={(usersQuery.data?.data ?? [])
+                        .filter((u) => !admins.some((a) => a.userId === u.id))
+                        .map((u) => ({ id: u.id, name: u.name, department: u.department }))}
+                      selectedIds={[]}
+                      onChange={(ids) => {
+                        const userId = ids[0];
+                        if (!userId) return;
+                        addMember.mutate({ projectId: project.id, userId, roleOnProject: "Project Admin" });
+                      }}
+                      placeholder="Search people to add as an admin…"
+                    />
+                  </div>
+                )}
               </div>
 
               <div>
@@ -283,41 +335,45 @@ export function ProjectDetailModal({
                           <p className="text-xs text-gray-500">{m.roleOnProject}</p>
                         </div>
                       </div>
-                      <button
-                        onClick={() => removeMemberSafely(m.userId, m.roleOnProject)}
-                        className="rounded-lg p-1.5 text-gray-300 hover:bg-rose-50 hover:text-status-danger"
-                        aria-label="Remove member"
-                      >
-                        <IconTrash size={15} />
-                      </button>
+                      {canManage && (
+                        <button
+                          onClick={() => removeMemberSafely(m.userId, m.roleOnProject)}
+                          className="rounded-lg p-1.5 text-gray-300 hover:bg-rose-50 hover:text-status-danger"
+                          aria-label="Remove member"
+                        >
+                          <IconTrash size={15} />
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
-                <div className="flex gap-2 pt-2">
-                  <select value={newMemberId} onChange={(e) => setNewMemberId(e.target.value)} className="input">
-                    <option value="">Select a user to add…</option>
-                    {usersQuery.data?.data
-                      .filter((u) => !project.members.some((m) => m.userId === u.id))
-                      .map((u) => (
-                        <option key={u.id} value={u.id}>
-                          {u.name}
-                        </option>
-                      ))}
-                  </select>
-                  <button
-                    onClick={() => {
-                      if (!newMemberId) return;
-                      addMember.mutate(
-                        { projectId: project.id, userId: newMemberId, roleOnProject: "Member" },
-                        { onSuccess: () => setNewMemberId("") }
-                      );
-                    }}
-                    className="btn-primary shrink-0 px-3"
-                  >
-                    <IconPlus size={16} />
-                  </button>
-                </div>
-                {usersQuery.isError && <p className="mt-1 text-xs text-status-danger">Couldn't load the user directory.</p>}
+                {canManage && (
+                  <div className="flex gap-2 pt-2">
+                    <select value={newMemberId} onChange={(e) => setNewMemberId(e.target.value)} className="input">
+                      <option value="">Select a user to add…</option>
+                      {usersQuery.data?.data
+                        .filter((u) => !project.members.some((m) => m.userId === u.id))
+                        .map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.name}
+                          </option>
+                        ))}
+                    </select>
+                    <button
+                      onClick={() => {
+                        if (!newMemberId) return;
+                        addMember.mutate(
+                          { projectId: project.id, userId: newMemberId, roleOnProject: "Member" },
+                          { onSuccess: () => setNewMemberId("") }
+                        );
+                      }}
+                      className="btn-primary shrink-0 px-3"
+                    >
+                      <IconPlus size={16} />
+                    </button>
+                  </div>
+                )}
+                {canManage && usersQuery.isError && <p className="mt-1 text-xs text-status-danger">Couldn't load the user directory.</p>}
               </div>
 
               {memberError && <p className="text-xs text-status-danger">{memberError}</p>}

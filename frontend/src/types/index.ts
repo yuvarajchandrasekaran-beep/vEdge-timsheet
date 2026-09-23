@@ -26,6 +26,10 @@ export interface Role {
   description?: string;
 }
 
+export interface ImpersonationInfo {
+  by: { id: string; name: string; email: string };
+}
+
 export interface User {
   id: string;
   employeeId: string;
@@ -40,6 +44,8 @@ export interface User {
   avatarUrl?: string | null;
   createdAt: string;
   updatedAt?: string;
+  // Present only when this session is a Super Admin impersonating this user.
+  impersonation?: ImpersonationInfo | null;
 }
 
 export interface UserChangeHistoryEntry {
@@ -109,15 +115,26 @@ export interface Project {
   admins: ProjectAdmin[];
   tasks: ProjectTask[];
   members: ProjectMember[];
+  sendTimesheetToClient?: boolean;
+  clientContactEmail?: string | null;
 }
 
 export type TimesheetStatus =
   | "DRAFT"
   | "SUBMITTED"
-  | "APPROVED_L1"
-  | "APPROVED_L2"
+  | "APPROVED"
   | "REJECTED"
   | "RECALLED";
+
+export type EntryIssueSeverity = "blocking" | "warning";
+
+export interface EntryIssue {
+  projectTaskId: string;
+  entryDate: string;
+  severity: EntryIssueSeverity;
+  code: string;
+  message: string;
+}
 
 export interface TimesheetEntry {
   id: string;
@@ -141,18 +158,19 @@ export interface Timesheet {
   totalHours: number;
   weekNotes?: string;
   entries: TimesheetEntry[];
+  validation?: EntryIssue[];
   submittedAt?: string | null;
   approvals?: Approval[];
   updatedAt?: string;
 }
 
-export type ApprovalLevel = "L1" | "L2";
+// Single-level approval model: every Approval row is a Project Admin (or
+// Super Admin fallback) decision — there's no L1/L2 split anymore.
 export type ApprovalAction = "PENDING" | "APPROVED" | "REJECTED";
 
 export interface Approval {
   id: string;
   timesheetId: string;
-  level: ApprovalLevel;
   approverId: string;
   approverName: string;
   action: ApprovalAction;
@@ -173,7 +191,6 @@ export interface ApprovalQueueItem {
   submittedAt: string;
   pendingDays: number;
   status: TimesheetStatus;
-  level: ApprovalLevel;
 }
 
 export interface Notification {
@@ -205,6 +222,8 @@ export interface AuditLog {
   action: string;
   actorId: string;
   actorName: string;
+  impersonatedById?: string | null;
+  impersonatedByName?: string | null;
   timestamp: string;
   details?: string;
 }
@@ -330,9 +349,50 @@ export interface OrgSettings {
 }
 
 export interface ApprovalChainStep {
-  level: ApprovalLevel;
+  level: "PROJECT_ADMIN";
   approverRole: RoleName;
   description: string;
+}
+
+export interface Holiday {
+  id: string;
+  name: string;
+  date: string; // YYYY-MM-DD
+  departmentId?: string | null;
+}
+
+export interface ClientTimesheetSendPreviewEntry {
+  entryId: string;
+  userId: string;
+  userName: string;
+  taskName: string;
+  entryDate: string;
+  hours: number;
+  notes?: string | null;
+}
+
+export interface ClientTimesheetSendPreview {
+  project: { id: string; name: string; code: string };
+  defaultRecipientEmail: string | null;
+  periodStart: string;
+  periodEnd: string;
+  totalHours: number;
+  entries: ClientTimesheetSendPreviewEntry[];
+}
+
+export interface ClientTimesheetSend {
+  id: string;
+  projectId: string;
+  projectName?: string;
+  sentByName?: string;
+  recipientEmail: string;
+  periodStart: string;
+  periodEnd: string;
+  entryCount: number;
+  totalHours: number;
+  fileName: string;
+  createdAt: string;
+  downloadUrl?: string;
 }
 
 export interface BrandingSettings {

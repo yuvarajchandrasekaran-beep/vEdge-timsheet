@@ -5,6 +5,8 @@ import { UserMultiSelectTypeahead } from "../common/UserMultiSelectTypeahead";
 import { IconPlus, IconTrash } from "../common/icons";
 import { useClients, useCreateProject, type CreateProjectInput, type CreateProjectTaskInput } from "../../hooks/useProjects";
 import { useUsers } from "../../hooks/useUsers";
+import { getApiErrorMessage } from "../../api/client";
+import { useToast } from "../common/Toast";
 import { BILLING_TYPE_LABELS, type BillingType } from "../../types";
 
 const BILLING_OPTIONS: { value: BillingType; label: string }[] = (
@@ -14,9 +16,15 @@ const BILLING_OPTIONS: { value: BillingType; label: string }[] = (
 const EMPTY_TASK: CreateProjectTaskInput = { name: "", billable: true, estimatedHours: undefined };
 
 export function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { data: clients } = useClients();
-  const allUsersQuery = useUsers({ page: 1, pageSize: 200 });
+  // This modal is always mounted (just hidden) by its parent, so its
+  // queries would otherwise fire on every visit to the Projects page —
+  // including for roles that can never open it (GET /clients and /users
+  // both 403 for an Individual User) and before the modal is even open.
+  // Only fetch once it's actually about to be shown.
+  const { data: clients } = useClients(open);
+  const allUsersQuery = useUsers({ page: 1, pageSize: 200 }, open);
   const createProject = useCreateProject();
+  const { showToast } = useToast();
 
   const [form, setForm] = useState<Partial<CreateProjectInput>>({ billingType: "T_AND_M" });
   const [adminIds, setAdminIds] = useState<string[]>([]);
@@ -49,6 +57,10 @@ export function NewProjectModal({ open, onClose }: { open: boolean; onClose: () 
       setError("Select at least one project admin.");
       return;
     }
+    if (form.endDate && form.endDate <= form.startDate) {
+      setError("End date must be after start date.");
+      return;
+    }
     const cleanTasks = tasks.filter((t) => t.name.trim().length > 0);
 
     createProject.mutate(
@@ -63,7 +75,12 @@ export function NewProjectModal({ open, onClose }: { open: boolean; onClose: () 
         memberIds: Array.from(memberIds),
         tasks: cleanTasks,
       },
-      { onSuccess: handleClose }
+      {
+        onSuccess: () => {
+          showToast(`Project "${form.name}" created.`, "success");
+          handleClose();
+        },
+      }
     );
   }
 
@@ -79,6 +96,15 @@ export function NewProjectModal({ open, onClose }: { open: boolean; onClose: () 
       size="lg"
       footer={
         <>
+          {/* Rendered in the modal's fixed footer, not the scrollable body —
+              a long form (many tasks) could otherwise scroll a validation or
+              API error out of view, making the modal look "stuck" when it
+              was really just failing silently off-screen. */}
+          {(error || createProject.isError) && (
+            <p className="mr-auto max-w-xs text-sm text-status-danger">
+              {error ?? getApiErrorMessage(createProject.error, "Couldn't create the project. Please try again.")}
+            </p>
+          )}
           <button onClick={handleClose} className="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100">
             Cancel
           </button>
@@ -244,11 +270,6 @@ export function NewProjectModal({ open, onClose }: { open: boolean; onClose: () 
           </div>
         </div>
       </div>
-
-      {error && <p className="mt-4 text-sm text-status-danger">{error}</p>}
-      {createProject.isError && (
-        <p className="mt-2 text-sm text-status-danger">Couldn't create the project. Please try again.</p>
-      )}
     </Modal>
   );
 }

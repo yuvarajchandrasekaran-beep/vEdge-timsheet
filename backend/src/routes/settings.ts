@@ -73,7 +73,7 @@ router.put(
         weeklyHourLimit: body.weeklyHourLimit,
       },
     });
-    await writeAuditLog({ actorId: req.user!.id, entityType: "OrganizationSettings", entityId: updated.id, action: "Update", before: existing, after: updated });
+    await writeAuditLog({ actorId: req.user!.id, impersonatedById: req.user!.impersonatedBy ?? null, entityType: "OrganizationSettings", entityId: updated.id, action: "Update", before: existing, after: updated });
     res.json(serializeOrgSettings(updated));
   })
 );
@@ -128,22 +128,16 @@ router.put(
         brandingAccentColor: body.accentColor,
       },
     });
-    await writeAuditLog({ actorId: req.user!.id, entityType: "Branding", entityId: updated.id, action: "Update", before: existing, after: updated });
+    await writeAuditLog({ actorId: req.user!.id, impersonatedById: req.user!.impersonatedBy ?? null, entityType: "Branding", entityId: updated.id, action: "Update", before: existing, after: updated });
     res.json({ logoUrl: updated.brandingLogoUrl, primaryColor: updated.brandingPrimaryColor, accentColor: updated.brandingAccentColor });
   })
 );
-
-async function getApprovalChainRow() {
-  let row = await prisma.approvalChainConfig.findFirst({ where: { scope: "Global" } });
-  if (!row) row = await prisma.approvalChainConfig.create({ data: { scope: "Global" } });
-  return row;
-}
 
 /**
  * @swagger
  * /settings/approval-chains:
  *   get:
- *     summary: Get the two-step default approval chain (Level 1 / Level 2)
+ *     summary: Describe the single-level approval model (read-only — there is nothing left to configure since it's always the project's own Project Admin(s), with Super Admin as a standing override)
  *     tags: [Settings]
  *     security: [{ bearerAuth: [] }]
  */
@@ -152,42 +146,13 @@ router.get(
   requireAuth,
   requireRole(ROLES.SUPER_ADMIN),
   asyncHandler(async (_req, res) => {
-    const row = await getApprovalChainRow();
     res.json([
-      { level: "L1", approverRole: row.level1Role, description: "First-line review by the project's assigned Project Admin." },
-      { level: "L2", approverRole: row.level2Role, description: "Final, org-wide review by HR Admin before a timesheet is settled." },
-    ]);
-  })
-);
-
-const chainStepSchema = z.object({
-  level: z.enum(["L1", "L2"]),
-  approverRole: z.enum(["SUPER_ADMIN", "HR_ADMIN", "PROJECT_ADMIN", "INDIVIDUAL_USER"]),
-  description: z.string().optional(),
-});
-
-/**
- * @swagger
- * /settings/approval-chains:
- *   put:
- *     summary: Update the default approval chain's approver roles
- *     tags: [Settings]
- *     security: [{ bearerAuth: [] }]
- */
-router.put(
-  "/approval-chains",
-  requireAuth,
-  requireRole(ROLES.SUPER_ADMIN),
-  asyncHandler(async (req, res) => {
-    const { chains } = z.object({ chains: z.array(chainStepSchema) }).parse(req.body);
-    const existing = await getApprovalChainRow();
-    const l1 = chains.find((c) => c.level === "L1")?.approverRole ?? existing.level1Role;
-    const l2 = chains.find((c) => c.level === "L2")?.approverRole ?? existing.level2Role;
-    const updated = await prisma.approvalChainConfig.update({ where: { id: existing.id }, data: { level1Role: l1, level2Role: l2 } });
-    await writeAuditLog({ actorId: req.user!.id, entityType: "ApprovalChainConfig", entityId: updated.id, action: "Update", before: existing, after: updated });
-    res.json([
-      { level: "L1", approverRole: updated.level1Role, description: chains.find((c) => c.level === "L1")?.description ?? "" },
-      { level: "L2", approverRole: updated.level2Role, description: chains.find((c) => c.level === "L2")?.description ?? "" },
+      {
+        level: "PROJECT_ADMIN",
+        approverRole: "PROJECT_ADMIN",
+        description:
+          "Every submitted timesheet is reviewed and approved by the Project Admin(s) of the project it logs the most time against. If a Project Admin is the only person logging time on their own project, that submission self-approves immediately. Super Admin can always act as a fallback approver.",
+      },
     ]);
   })
 );
@@ -196,9 +161,9 @@ const DEFAULT_NOTIFICATION_RULES: { type: string; event: string; description: st
   { type: "SubmissionReminder", event: "Submission reminder", description: "Weekly nudge if the current week isn't submitted yet." },
   { type: "OverdueSubmission", event: "Overdue submission", description: "Escalating notice after the submission deadline passes, cc'd to the manager." },
   { type: "PendingApprovalReminder", event: "Pending approval reminder", description: "Recurring reminder while an item sits in an approver's queue." },
-  { type: "EscalationAlert", event: "Escalation alert", description: "Sent to the approver's manager / HR Admin when a pending item breaches SLA." },
+  { type: "EscalationAlert", event: "Escalation alert", description: "Sent to Super Admin when a pending Project Admin approval breaches SLA." },
   { type: "Rejection", event: "Rejection notice", description: "Immediate notice to the employee when a timesheet is rejected." },
-  { type: "FinalApproval", event: "Final approval confirmation", description: "Immediate confirmation when a timesheet clears Level 2." },
+  { type: "FinalApproval", event: "Final approval confirmation", description: "Immediate confirmation when a timesheet is approved." },
 ];
 
 async function getNotificationRuleRows() {
@@ -266,7 +231,7 @@ router.put(
         data: { cadenceConfig: JSON.stringify({ emailEnabled: rule.emailEnabled, inAppEnabled: rule.inAppEnabled }) },
       });
     }
-    await writeAuditLog({ actorId: req.user!.id, entityType: "NotificationRule", action: "Update", after: body.rules });
+    await writeAuditLog({ actorId: req.user!.id, impersonatedById: req.user!.impersonatedBy ?? null, entityType: "NotificationRule", action: "Update", after: body.rules });
     const rows = await getNotificationRuleRows();
     res.json(
       rows.map(({ row, def }) => {

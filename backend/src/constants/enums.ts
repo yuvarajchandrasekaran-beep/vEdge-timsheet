@@ -14,11 +14,13 @@ export const ALL_ROLES: RoleName[] = Object.values(ROLES);
 // derives its own display labels from these (see Badge.tsx's *_TONE maps),
 // so do not change these to "friendly" strings without updating the
 // frontend's label/tone lookup tables too.
+// Single-level approval: Project Admin only. APPROVED is reached either by
+// the Project Admin acting, or immediately at submit time via self-approval
+// (see services/approvalRouting.ts).
 export const TIMESHEET_STATUS = {
   DRAFT: "DRAFT",
   SUBMITTED: "SUBMITTED",
-  APPROVED_L1: "APPROVED_L1",
-  APPROVED_L2: "APPROVED_L2",
+  APPROVED: "APPROVED",
   REJECTED: "REJECTED",
   RECALLED: "RECALLED",
 } as const;
@@ -59,6 +61,16 @@ export const PROJECT_MEMBER_ROLE = {
 } as const;
 
 export const APPROVAL_ACTION = { APPROVED: "APPROVED", REJECTED: "REJECTED" } as const;
+
+// Weekly hour policy: under/over the 40h standard week is fine on its own
+// (no warning); >50h/week warns ("double check this"); >70h/week blocks
+// submission outright until corrected. Applied per calendar week regardless
+// of which view (week/fortnight/month) was used to enter the time.
+export const WEEKLY_HOUR_POLICY = {
+  STANDARD_HOURS: 40,
+  WARNING_THRESHOLD: 50,
+  MAX_HOURS: 70,
+} as const;
 
 export const IMPORT_TYPE = { USERS: "Users", PROJECTS: "Projects" } as const;
 

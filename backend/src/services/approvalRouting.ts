@@ -1,19 +1,23 @@
 import { prisma } from "../lib/prisma";
-import { ROLES, PROJECT_MEMBER_ROLE } from "../constants/enums";
+import { PROJECT_MEMBER_ROLE } from "../constants/enums";
 
 /**
- * Default approval chain per spec 3.3: Level 1 = the Project Admin(s) of the
- * project(s) on the timesheet, Level 2 = any HR Admin (final, org-wide).
- * Per-project/department overrides live in ApprovalChainConfig but are not
- * yet consulted here — see SCHEMA_REFERENCE.md "Extension points".
+ * Single-level approval: every timesheet is reviewed and approved by a
+ * Project Admin of the project(s) it logs time against — there is no
+ * second (HR Admin / org-wide) level anymore.
  *
  * A project can have several admins (ProjectMember rows with
- * roleOnProject = "Project Admin"), so Level 1 resolves to a *set* of
- * eligible approvers rather than a single user: whichever project
- * contributed the most entries to the timesheet (if a week spans several
- * projects), any one of that project's admins may act.
+ * roleOnProject = "Project Admin"), so this resolves to a *set* of eligible
+ * approvers rather than a single user: whichever project contributed the
+ * most entries to the timesheet (if a week spans several projects), any one
+ * of that project's admins may act.
+ *
+ * Self-approval: if the submitter is themselves one of the resolved admins
+ * (i.e. a Project Admin submitting their own logged time on a project they
+ * administer), the timesheet is approved immediately at submit time — see
+ * routes/timesheets.ts's submit handler.
  */
-export async function resolveLevel1Approver(timesheetId: number): Promise<{ approverIds: number[]; selfAdministered: boolean }> {
+export async function resolveApprover(timesheetId: number): Promise<{ approverIds: number[]; selfAdministered: boolean }> {
   const entries = await prisma.timesheetEntry.findMany({
     where: { timesheetId },
     include: {
@@ -39,9 +43,4 @@ export async function resolveLevel1Approver(timesheetId: number): Promise<{ appr
   const [winningProjectId] = [...entryCountByProject.entries()].sort((a, b) => b[1] - a[1])[0];
   const approverIds = adminIdsByProject.get(winningProjectId) ?? [];
   return { approverIds, selfAdministered: approverIds.includes(timesheet.userId) };
-}
-
-export async function resolveLevel2Approver(): Promise<number | null> {
-  const hrAdmin = await prisma.user.findFirst({ where: { role: { name: ROLES.HR_ADMIN }, status: "ACTIVE" }, orderBy: { id: "asc" } });
-  return hrAdmin?.id ?? null;
 }

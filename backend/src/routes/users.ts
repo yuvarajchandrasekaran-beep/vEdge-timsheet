@@ -135,7 +135,7 @@ router.post(
       include: { role: true, department: true, manager: true },
     });
 
-    await writeAuditLog({ actorId: req.user!.id, entityType: "User", entityId: user.id, action: "Create", after: serializeUser(user) });
+    await writeAuditLog({ actorId: req.user!.id, impersonatedById: req.user!.impersonatedBy ?? null, entityType: "User", entityId: user.id, action: "Create", after: serializeUser(user) });
     res.status(201).json(serializeUser(user));
   })
 );
@@ -292,7 +292,7 @@ router.post(
             status: statusValue,
           },
         });
-        await writeAuditLog({ actorId: req.user!.id, entityType: "User", entityId: user.id, action: "BulkImport", after: user });
+        await writeAuditLog({ actorId: req.user!.id, impersonatedById: req.user!.impersonatedBy ?? null, entityType: "User", entityId: user.id, action: "BulkImport", after: user });
         successRows += 1;
       } catch (e: any) {
         errors.push({ row: idx + 1, errors: [e.message ?? "Unknown error"] });
@@ -404,6 +404,13 @@ router.patch(
     const before = await prisma.user.findUnique({ where: { id } });
     if (!before) throw ApiError.notFound("User not found");
 
+    // A Super/HR Admin deactivating their own account would lock themselves
+    // out with no way back in short of another admin reactivating them (this
+    // happened on the demo deployment) — block it outright.
+    if (id === req.user!.id && body.status === "INACTIVE") {
+      throw ApiError.badRequest("You can't deactivate your own account");
+    }
+
     let roleId: number | undefined;
     if (body.role) {
       const role = await prisma.role.findUnique({ where: { name: body.role } });
@@ -431,7 +438,7 @@ router.patch(
       include: { role: true, department: true, manager: true },
     });
 
-    await writeAuditLog({ actorId: req.user!.id, entityType: "User", entityId: id, action: "Update", before, after: user });
+    await writeAuditLog({ actorId: req.user!.id, impersonatedById: req.user!.impersonatedBy ?? null, entityType: "User", entityId: id, action: "Update", before, after: user });
     res.json(serializeUser(user));
   })
 );

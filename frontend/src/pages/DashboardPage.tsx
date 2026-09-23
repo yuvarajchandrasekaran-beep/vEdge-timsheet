@@ -24,19 +24,18 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   usePageHeader(`${greeting()}, ${user?.name?.split(" ")[0] ?? ""}`, "Here's what's happening with your time this week.");
   const weekStart = useCurrentWeekStart();
-  const isApprover = user?.role === "PROJECT_ADMIN" || user?.role === "HR_ADMIN" || user?.role === "SUPER_ADMIN";
+  const isApprover = user?.role === "PROJECT_ADMIN" || user?.role === "SUPER_ADMIN";
   const isOrgAdmin = user?.role === "SUPER_ADMIN" || user?.role === "HR_ADMIN";
-  const approvalLevel = user?.role === "HR_ADMIN" ? "L2" : "L1";
 
   const timesheetQuery = useMyTimesheet(weekStart);
-  const approvalsQuery = useApprovalsPending({ level: approvalLevel, page: 1, pageSize: 1 }, isApprover);
+  const approvalsQuery = useApprovalsPending({ page: 1, pageSize: 1 }, isApprover);
   const historyQuery = useTimesheetHistory(12);
   const projectsQuery = useProjects({ status: "ACTIVE", page: 1, pageSize: 100 });
   const notificationsQuery = useNotifications(true);
 
   const myPendingApprovalCount = useMemo(() => {
     if (!historyQuery.data) return 0;
-    return historyQuery.data.filter((t) => t.status === "SUBMITTED" || t.status === "APPROVED_L1").length;
+    return historyQuery.data.filter((t) => t.status === "SUBMITTED").length;
   }, [historyQuery.data]);
 
   const activeProjectsCount = projectsQuery.data?.meta.total ?? 0;

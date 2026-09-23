@@ -10,6 +10,11 @@ export interface AuthUser {
   email: string;
   role: RoleName;
   departmentId: number | null;
+  // Present only while this token represents a Super Admin impersonating
+  // another user — holds the real admin's user id. Every permission check
+  // in this app keys off `role`/`id` above, which are the impersonated
+  // user's own — impersonation fully assumes their access, nothing more.
+  impersonatedBy?: number;
 }
 
 declare global {
@@ -23,8 +28,9 @@ declare global {
 
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret";
 
-export function signToken(user: AuthUser): string {
-  return jwt.sign(user, JWT_SECRET, { expiresIn: (process.env.JWT_EXPIRES_IN || "8h") as jwt.SignOptions["expiresIn"] });
+export function signToken(user: AuthUser, opts?: { impersonatedBy?: number }): string {
+  const payload = opts?.impersonatedBy ? { ...user, impersonatedBy: opts.impersonatedBy } : user;
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: (process.env.JWT_EXPIRES_IN || "8h") as jwt.SignOptions["expiresIn"] });
 }
 
 export function requireAuth(req: Request, _res: Response, next: NextFunction) {

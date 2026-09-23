@@ -20,6 +20,8 @@ import reportsRoutes from "./routes/reports";
 import auditLogsRoutes from "./routes/auditLogs";
 import settingsRoutes from "./routes/settings";
 import dashboardRoutes from "./routes/dashboard";
+import holidaysRoutes from "./routes/holidays";
+import clientSendsRoutes from "./routes/clientSends";
 
 export function createApp() {
   const app = express();
@@ -53,6 +55,8 @@ export function createApp() {
   v1.use("/audit-logs", auditLogsRoutes);
   v1.use("/settings", settingsRoutes);
   v1.use("/dashboard", dashboardRoutes);
+  v1.use("/holidays", holidaysRoutes);
+  v1.use("/client-sends", clientSendsRoutes);
   app.use("/api/v1", v1);
 
   app.use((_req, res) => {

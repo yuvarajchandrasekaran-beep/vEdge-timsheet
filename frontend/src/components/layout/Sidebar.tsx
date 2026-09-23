@@ -4,6 +4,7 @@ import { useAuth } from "../../hooks/useAuth";
 import type { RoleName } from "../../types";
 import {
   IconBarChart,
+  IconCalendar,
   IconCheckSquare,
   IconClock,
   IconDashboard,
@@ -36,23 +37,29 @@ export function Sidebar({
     { to: "/dashboard", label: "Dashboard", icon: IconDashboard },
     { to: "/timesheets", label: "Timesheets", icon: IconClock },
     {
-      to: "/approvals/l1",
+      to: "/approvals",
       label: "Approvals",
       icon: IconCheckSquare,
-      roles: ["PROJECT_ADMIN", "HR_ADMIN", "SUPER_ADMIN"],
+      roles: ["PROJECT_ADMIN", "SUPER_ADMIN"],
       badge: approvalsBadge,
     },
     {
       to: "/reports",
       label: "Reports",
       icon: IconBarChart,
-      roles: ["SUPER_ADMIN", "HR_ADMIN", "PROJECT_ADMIN"],
+      roles: ["SUPER_ADMIN", "HR_ADMIN", "PROJECT_ADMIN", "INDIVIDUAL_USER"],
     },
     { to: "/projects", label: "Projects", icon: IconFolder },
     {
       to: "/users",
       label: "Users",
       icon: IconUsers,
+      roles: ["SUPER_ADMIN", "HR_ADMIN"],
+    },
+    {
+      to: "/holidays",
+      label: "Holiday Calendar",
+      icon: IconCalendar,
       roles: ["SUPER_ADMIN", "HR_ADMIN"],
     },
   ];

@@ -16,6 +16,15 @@ function toIsoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+// Human-readable date+time for report cells — a raw `Date` object serialized
+// via String()/CSV/PDF falls back to its JS toString() ("Thu Sep 10 2026
+// 23:48:08 GMT-0500 (Central Daylight Time)"), which is what every export
+// format (PDF, CSV) was actually showing before this existed.
+function formatDateTime(d: Date | null | undefined): string {
+  if (!d) return "";
+  return d.toLocaleString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
 function dateRangeWhere(filters: ReportFilters) {
   const where: any = {};
   if (filters.dateFrom || filters.dateTo) {
@@ -57,7 +66,7 @@ export async function getReportData(reportKey: ReportKey, filters: ReportFilters
     case "project-utilization": {
       const projects = await prisma.project.findMany({
         where: { id: filters.projectId, clientId: filters.clientId },
-        include: { client: true, tasks: { include: { timesheetEntries: true } } },
+        include: { client: true, tasks: { include: { timesheetEntries: { where: { entryDate: dateRangeWhere(filters) } } } } },
       });
       return projects.map((p) => {
         const budgetHours = sumEstimatedHours(p.tasks);
@@ -75,28 +84,40 @@ export async function getReportData(reportKey: ReportKey, filters: ReportFilters
     }
 
     case "approval-compliance": {
+      // Single-level approval model (see services/approvalRouting.ts) — a
+      // timesheet has at most one real decision now, not a Level 1/Level 2
+      // pair, so this reports on "who decided it and how long that took"
+      // instead of the old two-stage timing breakdown.
       const timesheets = await prisma.timesheet.findMany({
         where: { submittedAt: { not: null }, status: filters.status },
-        include: { user: true, approvals: true },
+        include: { user: true, approvals: { include: { approver: true }, orderBy: { actedAt: "asc" } } },
         orderBy: { submittedAt: "desc" },
         take: 200,
       });
       return timesheets.map((t) => {
-        const l1 = t.approvals.find((a) => a.level === 1);
-        const l2 = t.approvals.find((a) => a.level === 2);
-        const daysBetween = (a?: Date | null, b?: Date | null) =>
-          a && b ? Math.round(((b.getTime() - a.getTime()) / (1000 * 60 * 60 * 24)) * 10) / 10 : null;
-        const pendingDays = t.submittedAt && !l1 ? Math.floor((Date.now() - t.submittedAt.getTime()) / (1000 * 60 * 60 * 24)) : 0;
+        const decision = t.approvals[0];
+        // Only a still-SUBMITTED timesheet is actually "pending" — a
+        // synthetic historical row from seed.ts's backfillProjectHistory()
+        // can be APPROVED with no matching Approval record at all, and that
+        // must never be reported as pending/SLA-breached just because
+        // `decision` happens to be undefined.
+        const isPending = t.status === "SUBMITTED";
+        const pendingDays =
+          isPending && t.submittedAt ? Math.floor((Date.now() - t.submittedAt.getTime()) / (1000 * 60 * 60 * 24)) : 0;
+        const daysToDecide =
+          decision && t.submittedAt
+            ? Math.round(((decision.actedAt.getTime() - t.submittedAt.getTime()) / (1000 * 60 * 60 * 24)) * 10) / 10
+            : null;
         return {
           employeeId: t.user.employeeId,
           employee: t.user.name,
           weekStartDate: toIsoDate(t.weekStartDate),
           status: t.status,
-          submittedAt: t.submittedAt,
-          level1TimeDays: daysBetween(t.submittedAt, l1?.actedAt ?? null),
-          level2TimeDays: daysBetween(l1?.actedAt ?? null, l2?.actedAt ?? null),
+          submittedAt: formatDateTime(t.submittedAt),
+          approver: decision?.approver.name ?? (isPending ? "Pending" : "—"),
+          daysToDecide,
           pendingDays,
-          slaBreached: pendingDays > 3,
+          slaBreached: isPending && pendingDays > 3,
         };
       });
     }
@@ -175,7 +196,7 @@ export async function getReportData(reportKey: ReportKey, filters: ReportFilters
         take: 300,
       });
       return logs.map((l) => ({
-        timestamp: l.createdAt,
+        timestamp: formatDateTime(l.createdAt),
         actor: l.actor?.name ?? "System",
         entityType: l.entityType,
         entityId: l.entityId,
@@ -264,8 +285,11 @@ export async function getClientAuditReport(filters: ReportFilters) {
   };
 }
 
-export async function getUtilizationChartData() {
-  const projects = await prisma.project.findMany({ include: { tasks: { include: { timesheetEntries: true } } } });
+export async function getUtilizationChartData(filters: ReportFilters = {}) {
+  const projects = await prisma.project.findMany({
+    where: { id: filters.projectId, clientId: filters.clientId },
+    include: { tasks: { include: { timesheetEntries: { where: { entryDate: dateRangeWhere(filters) } } } } },
+  });
   const donut = projects.map((p) => {
     const budgetHours = sumEstimatedHours(p.tasks);
     const loggedHours = p.tasks.reduce((sum, t) => sum + t.timesheetEntries.reduce((s, e) => s + e.hours, 0), 0);
@@ -273,7 +297,13 @@ export async function getUtilizationChartData() {
     return { project: p.name, utilizationPct };
   });
 
-  const entries = await prisma.timesheetEntry.findMany({ orderBy: { entryDate: "asc" } });
+  const entries = await prisma.timesheetEntry.findMany({
+    where: {
+      entryDate: dateRangeWhere(filters),
+      projectTask: { projectId: filters.projectId, project: { clientId: filters.clientId } },
+    },
+    orderBy: { entryDate: "asc" },
+  });
   const byWeek = new Map<string, number>();
   for (const e of entries) {
     const d = new Date(e.entryDate);
@@ -317,7 +347,7 @@ export async function getUtilizationOverview(filters: ReportFilters) {
     utilizationPct: r.utilizationPct,
   }));
 
-  const { trend: rawTrend } = await getUtilizationChartData();
+  const { trend: rawTrend } = await getUtilizationChartData(filters);
   const trend = rawTrend.map((t) => ({ label: t.week, value: Math.round(t.hours * 100) / 100 }));
 
   const totalBudgetHours = rows.reduce((s, r) => s + r.budgetHours, 0);

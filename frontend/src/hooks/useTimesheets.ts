@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "../api/client";
 import type { Timesheet } from "../types";
 
@@ -10,6 +10,24 @@ export function useMyTimesheet(weekStart: string) {
       return res.data;
     },
     enabled: !!weekStart,
+  });
+}
+
+/**
+ * Fetches several weeks at once (Monthly/Fortnight) — same query key per
+ * week as useMyTimesheet, so the unified period grid and any per-week
+ * autosave share one cache entry per week instead of double-fetching.
+ */
+export function useMyTimesheetsForPeriod(weekStarts: string[]) {
+  return useQueries({
+    queries: weekStarts.map((weekStart) => ({
+      queryKey: ["timesheets", "me", weekStart],
+      queryFn: async () => {
+        const res = await apiClient.get<Timesheet>("/timesheets/me", { params: { weekStart } });
+        return res.data;
+      },
+      enabled: !!weekStart,
+    })),
   });
 }
 
@@ -64,6 +82,11 @@ export function useRecallTimesheet() {
     },
     onSuccess: ({ data, weekStart }) => {
       qc.setQueryData(["timesheets", "me", weekStart], data);
+      // Was missing relative to useSubmitTimesheet's onSuccess — anything
+      // reading useTimesheetHistory (e.g. the Dashboard's status tiles)
+      // stayed stale after a Recall until an unrelated refetch happened to
+      // fire, matching the reported "status not updated until refresh" bug.
+      qc.invalidateQueries({ queryKey: ["timesheets", "me", "history"] });
       qc.invalidateQueries({ queryKey: ["approvals"] });
     },
   });
@@ -90,15 +113,40 @@ export function useTimesheetDetail(id: string | undefined) {
   });
 }
 
-export function useCopyLastWeek() {
+/**
+ * Copies hours + project/task rows from the immediately preceding period of
+ * the same length (comments always come back blank) — one call handles the
+ * Weekly view's "Copy Last Week" (a single week), and the Fortnight/Monthly
+ * views' "Copy previous period" (their full set of weeks at once).
+ */
+export function useCopyPeriod() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ weekStart }: { weekStart: string }) => {
-      const res = await apiClient.post<Timesheet>("/timesheets/copy-last-week", { weekStart });
+    mutationFn: async ({ weekStarts }: { weekStarts: string[] }) => {
+      const res = await apiClient.post<Timesheet[]>("/timesheets/copy", { weekStarts });
       return res.data;
     },
-    onSuccess: (data, variables) => {
-      qc.setQueryData(["timesheets", "me", variables.weekStart], data);
+    onSuccess: (data) => {
+      for (const t of data) {
+        qc.setQueryData(["timesheets", "me", t.weekStart], t);
+      }
+    },
+  });
+}
+
+export function useSubmitBatch() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ weekStarts }: { weekStarts: string[] }) => {
+      const res = await apiClient.post<{ submitted: string[] }>("/timesheets/submit-batch", { weekStarts });
+      return { ...res.data, weekStarts };
+    },
+    onSuccess: ({ weekStarts }) => {
+      for (const ws of weekStarts) {
+        qc.invalidateQueries({ queryKey: ["timesheets", "me", ws] });
+      }
+      qc.invalidateQueries({ queryKey: ["timesheets", "me", "history"] });
+      qc.invalidateQueries({ queryKey: ["approvals"] });
     },
   });
 }

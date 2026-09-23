@@ -1,10 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "../api/client";
-import type { ApprovalLevel, ApprovalQueueItem, ListResponse } from "../types";
+import type { ApprovalQueueItem, ListResponse } from "../types";
 
 export interface ApprovalsQueryParams {
-  level?: ApprovalLevel;
-  project?: string;
+  search?: string;
   department?: string;
   pendingDays?: number;
   status?: "PENDING" | "APPROVED" | "REJECTED";
@@ -59,6 +58,17 @@ export function useBulkApprove() {
   return useMutation({
     mutationFn: async (timesheetIds: string[]) => {
       const res = await apiClient.post("/approvals/bulk-approve", { timesheetIds });
+      return res.data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["approvals"] }),
+  });
+}
+
+export function useBulkReject() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ timesheetIds, comment }: { timesheetIds: string[]; comment: string }) => {
+      const res = await apiClient.post("/approvals/bulk-reject", { timesheetIds, comment });
       return res.data;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["approvals"] }),

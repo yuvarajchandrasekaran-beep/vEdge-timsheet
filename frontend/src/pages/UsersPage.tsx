@@ -1,10 +1,12 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "../hooks/useAuth";
 import { useDepartments, useRoles } from "../hooks/useDepartments";
 import { usePageHeader } from "../hooks/usePageHeader";
 import { useUpdateUser, useUsers } from "../hooks/useUsers";
 import type { RoleName, UserStatus } from "../types";
 import { ROLE_LABELS } from "../types";
+import { getApiErrorMessage } from "../api/client";
 import { Avatar } from "../components/common/Avatar";
 import { StatusBadge } from "../components/common/Badge";
 import { LoadingBlock } from "../components/common/Spinner";
@@ -21,6 +23,7 @@ const PAGE_SIZE = 8;
 export default function UsersPage() {
   usePageHeader("User Management", "Manage accounts, roles and departments");
   const navigate = useNavigate();
+  const { user: currentUser, hasRole, impersonate } = useAuth();
   const [tab, setTab] = useState<Tab>("users");
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<RoleName | "">("");
@@ -28,12 +31,30 @@ export default function UsersPage() {
   const [page, setPage] = useState(1);
   const [newModalOpen, setNewModalOpen] = useState(false);
   const [profileId, setProfileId] = useState<string | null>(null);
+  const [impersonatingId, setImpersonatingId] = useState<string | null>(null);
+  const [impersonateError, setImpersonateError] = useState<string | null>(null);
 
   const { data: departments } = useDepartments();
   const { data: roles } = useRoles();
   const usersQuery = useUsers({ page, pageSize: PAGE_SIZE, search, role: roleFilter, department: departmentFilter });
   const allUsersForCounts = useUsers({ page: 1, pageSize: 500 });
   const updateUser = useUpdateUser();
+  const canImpersonate = hasRole("SUPER_ADMIN");
+
+  async function handleImpersonate(userId: string) {
+    if (!confirm("Log in as this user? This is logged to the audit trail, and everything you do will be attributed to their account until you return to your own.")) {
+      return;
+    }
+    setImpersonateError(null);
+    setImpersonatingId(userId);
+    try {
+      await impersonate(userId);
+      navigate("/dashboard", { replace: true });
+    } catch (err) {
+      setImpersonateError(getApiErrorMessage(err, "Couldn't start impersonation."));
+      setImpersonatingId(null);
+    }
+  }
 
   const users = usersQuery.data?.data ?? [];
   const total = usersQuery.data?.meta.total ?? 0;
@@ -58,6 +79,15 @@ export default function UsersPage() {
           </button>
         </div>
       </div>
+
+      {impersonateError && (
+        <div className="flex items-center justify-between rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-status-danger">
+          <span>{impersonateError}</span>
+          <button onClick={() => setImpersonateError(null)} className="ml-3 shrink-0 font-medium hover:underline">
+            Dismiss
+          </button>
+        </div>
+      )}
 
       <div className="flex gap-1 rounded-xl bg-gray-100 p-1 sm:w-fit">
         {(["users", "roles"] as Tab[]).map((t) => (
@@ -184,6 +214,16 @@ export default function UsersPage() {
                             >
                               {u.status === "ACTIVE" ? "Deactivate" : "Activate"}
                             </button>
+                            {canImpersonate && u.id !== currentUser?.id && u.status === "ACTIVE" && (
+                              <button
+                                onClick={() => handleImpersonate(u.id)}
+                                disabled={impersonatingId === u.id}
+                                title="Log in as this user"
+                                className="rounded-lg px-2.5 py-1 text-xs font-medium text-brand-primary hover:bg-blue-50 disabled:opacity-60"
+                              >
+                                {impersonatingId === u.id ? "Signing in…" : "Impersonate"}
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -198,7 +238,15 @@ export default function UsersPage() {
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {(roles ?? []).map((r) => (
-            <div key={r.id} className="rounded-2xl bg-white p-5 shadow-soft ring-1 ring-gray-100">
+            <button
+              key={r.id}
+              onClick={() => {
+                setTab("users");
+                setRoleFilter(r.name);
+                setPage(1);
+              }}
+              className="rounded-2xl bg-white p-5 text-left shadow-soft ring-1 ring-gray-100 transition-colors hover:ring-brand-primary/40"
+            >
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-brand-primary">
                   <IconUsers size={18} />
@@ -209,7 +257,7 @@ export default function UsersPage() {
                 </div>
               </div>
               {r.description && <p className="mt-3 text-sm text-gray-600">{r.description}</p>}
-            </div>
+            </button>
           ))}
           {!roles?.length && !allUsersForCounts.isLoading && (
             <EmptyState title="No roles configured" description="Roles are managed server-side." />

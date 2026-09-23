@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { usePageHeader } from "../hooks/usePageHeader";
 import { useClients, useDeleteProject, useProjects } from "../hooks/useProjects";
@@ -14,13 +15,14 @@ import { NewClientModal } from "../components/projects/NewClientModal";
 import { ProjectDetailModal } from "../components/projects/ProjectDetailModal";
 import { formatDate, formatHoursDecimal } from "../utils/format";
 import { ProgressBar } from "../components/common/ProgressBar";
-import { IconEdit, IconEye, IconPlus, IconSearch, IconTrash, IconUsers } from "../components/common/icons";
+import { IconEdit, IconPlus, IconSearch, IconTrash, IconUpload, IconUsers } from "../components/common/icons";
 
 type Tab = "projects" | "clients";
 const PAGE_SIZE = 8;
 const TAB_LABELS: Record<Tab, string> = { projects: "Projects", clients: "Clients" };
 
 export default function ProjectsPage() {
+  const navigate = useNavigate();
   const { user, hasRole } = useAuth();
   usePageHeader(
     "Projects & Tasks",
@@ -28,27 +30,44 @@ export default function ProjectsPage() {
   );
   const canCreate = hasRole("SUPER_ADMIN", "PROJECT_ADMIN");
   const canDelete = hasRole("SUPER_ADMIN");
+  // GET /clients 403s for an Individual User — match that here instead of
+  // firing a request that's guaranteed to fail, and hide the Clients tab
+  // (client management isn't part of their "view assigned projects" access).
+  const canViewClients = hasRole("SUPER_ADMIN", "HR_ADMIN", "PROJECT_ADMIN");
 
   const [tab, setTab] = useState<Tab>("projects");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<ProjectStatus | "">("");
   const [clientFilter, setClientFilter] = useState("");
+  const [clientStatusFilter, setClientStatusFilter] = useState<"" | "ACTIVE" | "INACTIVE">("");
   const [page, setPage] = useState(1);
   const [newModalOpen, setNewModalOpen] = useState(false);
   const [newClientModalOpen, setNewClientModalOpen] = useState(false);
   const [detail, setDetail] = useState<{ id: string; tab: "overview" | "tasks" | "members" } | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  const { data: clients } = useClients();
+  const { data: clients } = useClients(canViewClients);
   const projectsQuery = useProjects({ status: statusFilter, clientId: clientFilter, search, page, pageSize: PAGE_SIZE });
   const deleteProject = useDeleteProject();
 
   const projects = projectsQuery.data?.data ?? [];
   const total = projectsQuery.data?.meta.total ?? 0;
 
+  const filteredClients = (clients ?? []).filter((c) => {
+    if (search && !c.name.toLowerCase().includes(search.toLowerCase())) return false;
+    if (clientStatusFilter && (c.status ?? "ACTIVE") !== clientStatusFilter) return false;
+    return true;
+  });
+
   return (
     <div className="flex min-h-full flex-col gap-5">
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        {canCreate && (
+          <button onClick={() => navigate("/bulk-upload?type=projects")} className="btn-secondary">
+            <IconUpload size={16} />
+            Bulk Import
+          </button>
+        )}
         {canCreate && (
           <button onClick={() => setNewModalOpen(true)} className="btn-primary">
             <IconPlus size={16} />
@@ -67,7 +86,7 @@ export default function ProjectsPage() {
       )}
 
       <div className="flex gap-1 rounded-xl bg-gray-100 p-1 sm:w-fit">
-        {(["projects", "clients"] as Tab[]).map((t) => (
+        {(canViewClients ? (["projects", "clients"] as Tab[]) : (["projects"] as Tab[])).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -90,27 +109,29 @@ export default function ProjectsPage() {
                 setSearch(e.target.value);
                 setPage(1);
               }}
-              placeholder="Search projects by name or code…"
+              placeholder={tab === "projects" ? "Search projects by name or code…" : "Search clients by name…"}
               className="input pl-9"
             />
           </div>
-          {tab === "projects" && (
+          {tab === "projects" ? (
             <>
-              <select
-                value={clientFilter}
-                onChange={(e) => {
-                  setClientFilter(e.target.value);
-                  setPage(1);
-                }}
-                className="input sm:w-48"
-              >
-                <option value="">All clients</option>
-                {clients?.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+              {canViewClients && (
+                <select
+                  value={clientFilter}
+                  onChange={(e) => {
+                    setClientFilter(e.target.value);
+                    setPage(1);
+                  }}
+                  className="input sm:w-48"
+                >
+                  <option value="">All clients</option>
+                  {clients?.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              )}
               <select
                 value={statusFilter}
                 onChange={(e) => {
@@ -127,6 +148,16 @@ export default function ProjectsPage() {
                 ))}
               </select>
             </>
+          ) : (
+            <select
+              value={clientStatusFilter}
+              onChange={(e) => setClientStatusFilter(e.target.value as "" | "ACTIVE" | "INACTIVE")}
+              className="input sm:w-40"
+            >
+              <option value="">All statuses</option>
+              <option value="ACTIVE">Active</option>
+              <option value="INACTIVE">Inactive</option>
+            </select>
           )}
         </div>
 
@@ -181,7 +212,12 @@ export default function ProjectsPage() {
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex items-center justify-end gap-1.5">
-                              <RowAction icon={<IconEye size={15} />} label="View" onClick={() => setDetail({ id: p.id, tab: "overview" })} />
+                              {/* A separate "View" icon used to open this exact same
+                                  editable modal — indistinguishable from Edit, and
+                                  reported as "Project details are editable from the
+                                  View icon" since it looked like it should be
+                                  read-only. Removed rather than threading a
+                                  read-only mode through ProjectDetailModal. */}
                               <RowAction icon={<IconEdit size={15} />} label="Edit" onClick={() => setDetail({ id: p.id, tab: "overview" })} />
                               <RowAction icon={<IconUsers size={15} />} label="Members" onClick={() => setDetail({ id: p.id, tab: "members" })} />
                               {canDelete && (
@@ -222,6 +258,10 @@ export default function ProjectsPage() {
               <div className="p-4">
                 <EmptyState title="No clients found" description="Create your first client to start adding projects." />
               </div>
+            ) : filteredClients.length === 0 ? (
+              <div className="p-4">
+                <EmptyState title="No clients match your filters" description="Try a different search or status." />
+              </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[500px]">
@@ -233,7 +273,7 @@ export default function ProjectsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {clients.map((c) => (
+                    {filteredClients.map((c) => (
                       <tr key={c.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/60">
                         <td className="px-4 py-3 text-sm font-medium text-gray-900">{c.name}</td>
                         <td className="px-4 py-3">

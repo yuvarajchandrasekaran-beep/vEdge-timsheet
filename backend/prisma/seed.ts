@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { computeUsFederalHolidays } from "../src/services/usFederalHolidays";
 
 const prisma = new PrismaClient();
 const PASSWORD = "Password123!";
@@ -190,10 +191,17 @@ async function main() {
     startDate: string;
     endDate: string;
     tasks: { name: string; estimatedHours: number; billable: boolean }[];
+    sendTimesheetToClient?: boolean;
+    clientContactEmail?: string;
   }) {
     const project = await prisma.project.upsert({
       where: { code: params.code },
-      update: { status: params.status, billingType: params.billingType },
+      update: {
+        status: params.status,
+        billingType: params.billingType,
+        sendTimesheetToClient: params.sendTimesheetToClient ?? false,
+        clientContactEmail: params.clientContactEmail,
+      },
       create: {
         code: params.code,
         name: params.name,
@@ -202,6 +210,8 @@ async function main() {
         billingType: params.billingType,
         startDate: new Date(params.startDate),
         endDate: new Date(params.endDate),
+        sendTimesheetToClient: params.sendTimesheetToClient ?? false,
+        clientContactEmail: params.clientContactEmail,
       },
     });
     const tasks = [];
@@ -251,6 +261,8 @@ async function main() {
       { name: "Integration", estimatedHours: 450, billable: true },
       { name: "API Development", estimatedHours: 450, billable: true },
     ],
+    sendTimesheetToClient: true,
+    clientContactEmail: "billing@fincorp-demo.com",
   });
 
   const mobile = await upsertProject({
@@ -487,14 +499,14 @@ async function main() {
   await quickSubmittedWeek(ravi.id, erpDev.id, 8, "SUBMITTED");
   await quickSubmittedWeek(raghu.id, mobileUiUx.id, 7.7, "SUBMITTED");
   await quickSubmittedWeek(steven.id, finOpsIntegration.id, 8, "SUBMITTED");
-  // Ramesh's own week: submitting auto-clears L1 (he's the project admin), so seed him at Approved L1 pending L2.
-  await quickSubmittedWeek(ramesh.id, erpDev.id, 7.2, "APPROVED_L1");
+  // Ramesh is a Project Admin on ERP-01, so his own submission there self-approves.
+  await quickSubmittedWeek(ramesh.id, erpDev.id, 7.2, "APPROVED");
 
   // Backfill several months of history per project so utilization/reporting
   // screens show realistic, non-zero burn-down rather than a single week of
-  // data. Entries are written as Approved L2 (final) history — status here
-  // doesn't affect the raw hours utilization sums, but "Approved L2" reads
-  // more realistically as settled historical weeks than "Draft".
+  // data. Entries are written as Approved history — status here doesn't
+  // affect the raw hours utilization sums, but "Approved" reads more
+  // realistically as settled historical weeks than "Draft".
   async function backfillProjectHistory(params: { members: { userId: number; taskId: number }[]; targetHours: number; weeksBack: number }) {
     const perWeekTotal = params.targetHours / params.weeksBack;
     const perMemberPerWeek = perWeekTotal / params.members.length;
@@ -504,8 +516,8 @@ async function main() {
       for (const member of params.members) {
         const t = await prisma.timesheet.upsert({
           where: { userId_weekStartDate: { userId: member.userId, weekStartDate: histWeekStart } },
-          update: { status: "APPROVED_L2" },
-          create: { userId: member.userId, weekStartDate: histWeekStart, status: "APPROVED_L2", submittedAt: histWeekStart },
+          update: { status: "APPROVED" },
+          create: { userId: member.userId, weekStartDate: histWeekStart, status: "APPROVED", submittedAt: histWeekStart },
         });
         const perDay = Math.round((perMemberPerWeek / 5) * 100) / 100;
         for (let d = 0; d < 5; d++) {
@@ -613,6 +625,16 @@ async function main() {
     create: { id: 1, name: "Founder's Day", date: new Date("2026-09-05") },
   });
 
+  // Company holiday calendar defaults to the US federal calendar (spanning
+  // this and next year so both the current and upcoming Monthly views show
+  // holiday warnings without needing a manual sync first).
+  for (const year of [2026, 2027]) {
+    for (const h of computeUsFederalHolidays(year)) {
+      const existing = await prisma.holiday.findFirst({ where: { name: h.name, date: h.date } });
+      if (!existing) await prisma.holiday.create({ data: { name: h.name, date: h.date } });
+    }
+  }
+
   await prisma.organizationSettings.upsert({
     where: { id: 1 },
     update: { workWeekStartDay: "MONDAY" },
@@ -642,18 +664,7 @@ async function main() {
         userId: ramesh.id,
         type: "PendingApproval",
         title: "New timesheets awaiting your approval",
-        message: "4 timesheets are ready for your Level 1 review.",
-      },
-    });
-  }
-  const shibaniReminder = await prisma.notification.findFirst({ where: { userId: shibani.id, type: "PendingApproval" } });
-  if (!shibaniReminder) {
-    await prisma.notification.create({
-      data: {
-        userId: shibani.id,
-        type: "PendingApproval",
-        title: "Timesheet awaiting final approval",
-        message: "Ramesh Natarajan's timesheet has cleared Level 1 and needs your final review.",
+        message: "4 timesheets are ready for your review.",
       },
     });
   }

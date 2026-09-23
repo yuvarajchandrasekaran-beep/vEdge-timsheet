@@ -10,6 +10,14 @@ and what's real vs. stubbed, see [`SCHEMA_REFERENCE.md`](SCHEMA_REFERENCE.md).
 For a one-page rundown of the servers/services involved, see
 [`INFRASTRUCTURE.md`](INFRASTRUCTURE.md).
 
+## 0. Database (SQLite)
+How to create your own local DB:
+
+cd backend
+npx prisma db push      # creates a fresh dev.db from schema.prisma
+npm run db:seed         # populates it with the same demo data yours has
+
+
 ## 1. What this is
 
 A three-tier app matching the spec's architecture: a React + TypeScript SPA,
@@ -17,9 +25,10 @@ a Node.js + Express REST API enforcing all business rules and RBAC, and a
 relational database via Prisma ORM. It implements every functional module in
 spec Section 4 — user management with Excel bulk import, project/client/task
 hierarchy with time restrictions, the weekly timesheet grid with a real-time
-validation engine, two-level approval with delegation and escalation,
-in-app notifications with a background reminder sweep, and a reporting module
-with PDF/Excel/CSV export.
+validation engine (plus Monthly/Fortnight period views over the same data),
+single-level approval with delegation and escalation, in-app notifications
+with a background reminder sweep, and a reporting module with PDF/Excel/CSV
+export.
 
 See [`SCHEMA_REFERENCE.md` §10](SCHEMA_REFERENCE.md#10-whats-stubbed-vs-real--quick-index)
 for the precise list of what's fully wired up versus what's a documented
@@ -150,6 +159,30 @@ Frontend npm scripts: `npm run dev` (Vite dev server), `npm run build`
 (`tsc -b && vite build` — type-checks as part of the build), `npm run preview`
 (serve the production build locally), `npm run lint` (ESLint).
 
+### Docker
+
+Both apps have a multi-stage `Dockerfile` for container-based deployment
+(see `TimeSync_GCP_Deployment_Infrastructure.pdf` for the full target cloud
+architecture these are built for):
+
+- `backend/Dockerfile` — builds and runs the compiled API on Node 20. The
+  build stage rewrites the Prisma datasource from `sqlite` to `mysql` (only
+  inside the image — `backend/prisma/schema.prisma` in the repo is
+  untouched), since this container is meant to run against a real MySQL
+  instance, not the local `dev.db` file. Listens on `8080`; needs
+  `DATABASE_URL`, `JWT_SECRET`, `CORS_ORIGIN` set as env vars (or, for a
+  cloud deploy, mounted from a secrets manager — see the PDF §5).
+- `frontend/Dockerfile` — builds the static Vite bundle, then serves it via
+  nginx. `docker-entrypoint.sh` requires a `BACKEND_URL` env var at container
+  start (e.g. `https://timesync-backend-xxxxx.a.run.app`) and substitutes it
+  into `nginx.conf.template` so the container can reverse-proxy `/api/*` to
+  the backend without a separate load balancer. Also listens on `8080`.
+
+Build/run either one locally with the standard `docker build`/`docker run`
+commands; there's no `docker-compose.yml` in the repo, so running both
+together means starting each container and pointing the frontend one's
+`BACKEND_URL` at the backend one's address.
+
 ## 7. Backend npm scripts
 
 | Script | Purpose |
@@ -180,8 +213,8 @@ Seeded by `backend/prisma/seed.ts`. Password for every account:
 |---|---|---|
 | bdasari@vivid-edge.com | Super Admin | Bhaskar Dasari |
 | jeff.cockman@vivid-edge.com | Super Admin | Jeff Cockman |
-| shibani.gandhi@vivid-edge.com | HR Admin (Level 2 approver) | Shibani Gandhi |
-| ramesh.natarajan@vivid-edge.com | Project Admin (Level 1 approver) | Ramesh Natarajan |
+| shibani.gandhi@vivid-edge.com | HR Admin | Shibani Gandhi |
+| ramesh.natarajan@vivid-edge.com | Project Admin (approver) | Ramesh Natarajan |
 | ramakrishna.avalur@vivid-edge.com | Individual User | Ramakrishna Avalur |
 | ravi.angara@vivid-edge.com | Individual User | Ravi Angara |
 | raghu.muniyappa@vivid-edge.com | Individual User | Raghu Muniyappa |
@@ -191,8 +224,9 @@ Seeded by `backend/prisma/seed.ts`. Password for every account:
 | yuvaraj.chandrasekaran@vivid-edge.com | Individual User | Yuvaraj Chandrasekaran |
 
 Log in as **Ramakrishna Avalur** to see a populated current-week timesheet.
-Log in as **Ramesh Natarajan** or **Shibani Gandhi** to see populated Level 1
-/ Level 2 approval queues. The demo login screen's account-picker panel lists
+Log in as **Ramesh Natarajan** to see a populated approval queue (approval is
+single-level — Project Admin only, with Super Admin as a fallback; HR Admin
+does not approve timesheets). The demo login screen's account-picker panel lists
 all eleven (kept in sync with this table by hand — see
 `frontend/src/data/demoAccounts.ts`, which is the one piece of user data not
 sourced from the API).
@@ -226,8 +260,8 @@ URL at build time (see `frontend/src/api/client.ts`).
 This is covered in full in
 [`SCHEMA_REFERENCE.md` §10](SCHEMA_REFERENCE.md#10-whats-stubbed-vs-real--quick-index),
 but the short version: authentication, RBAC, the timesheet grid + validation
-engine, two-level approval, Excel bulk import, and reporting/export are fully
-functional end to end. SSO, real outbound email/Slack/Teams delivery, Redis,
+engine, single-level approval, Excel bulk import, and reporting/export are
+fully functional end to end. SSO, real outbound email/Slack/Teams delivery, Redis,
 and S3-backed file storage are documented extension points, not implemented —
 none of the spec's core workflows depend on them, but they're needed before a
 real production rollout (spec Sections 9–11).
@@ -243,14 +277,13 @@ To verify the core flows manually:
    >8h with no note (blocking at submit) to see the validation engine react.
 2. Submit the week, then log in as **Ramesh Natarajan** → Approvals →
    approve or reject (rejection requires a comment) Ravi Angara's or Raghu
-   Muniyappa's pending timesheet.
-3. Log in as **Shibani Gandhi** → Approvals → confirm the Level-1-approved
-   timesheet now appears in the Level 2 queue, and give final approval.
-4. As Shibani Gandhi or Bhaskar Dasari, go to Users → Bulk Upload, download the
+   Muniyappa's pending timesheet — this is the final decision, since approval
+   is single-level.
+3. As Shibani Gandhi or Bhaskar Dasari, go to Users → Bulk Upload, download the
    template, fill in a row or two (including one intentionally invalid row),
    upload it, and confirm the dry-run preview flags Valid/Warning/Error
    correctly before committing.
-5. Go to Reports, generate the Project Utilization report, and export it as
+4. Go to Reports, generate the Project Utilization report, and export it as
    PDF, Excel, and CSV.
 
 ## 12. Attribution

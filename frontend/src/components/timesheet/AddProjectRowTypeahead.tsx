@@ -41,9 +41,15 @@ export function AddProjectRowTypeahead({
   }
 
   return (
-    <div className="relative" ref={containerRef}>
-      <div className="flex items-center gap-2 rounded-xl border border-dashed border-gray-300 bg-gray-50/60 px-3 py-2 focus-within:border-brand-primary">
-        <IconPlus size={15} className="text-gray-400" />
+    <div className="relative w-full max-w-xs" ref={containerRef}>
+      <div
+        className={`flex items-center gap-1.5 rounded-lg border-2 px-2.5 py-1.5 shadow-sm transition-colors ${
+          disabled
+            ? "border-gray-200 bg-gray-50"
+            : "border-brand-primary/40 bg-blue-50/50 hover:border-brand-primary hover:bg-blue-50 focus-within:border-brand-primary focus-within:bg-blue-50"
+        }`}
+      >
+        <IconPlus size={14} className={disabled ? "text-gray-400" : "text-brand-primary"} />
         <input
           disabled={disabled}
           value={query}
@@ -68,14 +74,14 @@ export function AddProjectRowTypeahead({
               setOpen(false);
             }
           }}
-          placeholder="Add a project / task to this week…"
-          className="w-full bg-transparent text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none disabled:cursor-not-allowed"
+          placeholder="Add a project / task…"
+          className="w-full min-w-0 bg-transparent text-sm font-medium text-gray-900 placeholder:font-normal placeholder:text-brand-primary/70 focus:outline-none disabled:cursor-not-allowed disabled:placeholder:text-gray-400"
         />
-        <IconSearch size={14} className="text-gray-300" />
+        <IconSearch size={13} className={disabled ? "text-gray-300" : "text-brand-primary/60"} />
       </div>
 
       {open && filtered.length > 0 && (
-        <div className="absolute z-20 mt-1.5 max-h-60 w-full overflow-y-auto rounded-xl border border-gray-100 bg-white py-1 shadow-card">
+        <div className="absolute z-20 mt-1.5 max-h-60 w-full min-w-[280px] overflow-y-auto rounded-xl border border-gray-200 bg-white py-1 shadow-card">
           {filtered.map((option, idx) => (
             <button
               key={option.projectTaskId}
@@ -83,17 +89,17 @@ export function AddProjectRowTypeahead({
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => select(option)}
               className={`flex w-full items-center px-3 py-2 text-left text-sm ${
-                idx === highlight ? "bg-blue-50 text-brand-primary" : "text-gray-700 hover:bg-gray-50"
+                idx === highlight ? "bg-blue-50 text-brand-primary" : "text-gray-800 hover:bg-gray-50"
               }`}
             >
               <span className="font-medium">{option.projectName}</span>
-              <span className="ml-1.5 text-gray-400">· {option.taskName}</span>
+              <span className="ml-1.5 text-gray-500">· {option.taskName}</span>
             </button>
           ))}
         </div>
       )}
       {open && filtered.length === 0 && (
-        <div className="absolute z-20 mt-1.5 w-full rounded-xl border border-gray-100 bg-white px-3 py-3 text-sm text-gray-400 shadow-card">
+        <div className="absolute z-20 mt-1.5 w-full min-w-[280px] rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm text-gray-600 shadow-card">
           No matching assigned project/task found.
         </div>
       )}

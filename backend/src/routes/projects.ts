@@ -32,6 +32,8 @@ function serializeProject(p: any) {
     endDate: p.endDate,
     status: p.status,
     billingType: p.billingType,
+    sendTimesheetToClient: p.sendTimesheetToClient ?? false,
+    clientContactEmail: p.clientContactEmail ?? null,
     // Bottoms-up: budget hours are the sum of each task's estimate, never
     // entered directly on the project.
     budgetHours: sumEstimatedHours(p.tasks ?? []),
@@ -112,19 +114,24 @@ const projectTaskInputSchema = z.object({
   endDate: z.string().optional(),
 });
 
-const createProjectSchema = z.object({
-  clientId: z.coerce.number(),
-  code: z.string().min(1),
-  name: z.string().min(1),
-  description: z.string().optional(),
-  startDate: z.string(),
-  endDate: z.string().nullable().optional(),
-  status: z.string().optional(),
-  billingType: z.enum([PROJECT_BILLING_TYPE.T_AND_M, PROJECT_BILLING_TYPE.FIXED, PROJECT_BILLING_TYPE.MANAGED_SERVICES]).optional(),
-  adminIds: z.array(z.coerce.number()).optional(),
-  memberIds: z.array(z.coerce.number()).optional(),
-  tasks: z.array(projectTaskInputSchema).optional(),
-});
+const createProjectSchema = z
+  .object({
+    clientId: z.coerce.number(),
+    code: z.string().min(1),
+    name: z.string().min(1),
+    description: z.string().optional(),
+    startDate: z.string(),
+    endDate: z.string().nullable().optional(),
+    status: z.string().optional(),
+    billingType: z.enum([PROJECT_BILLING_TYPE.T_AND_M, PROJECT_BILLING_TYPE.FIXED, PROJECT_BILLING_TYPE.MANAGED_SERVICES]).optional(),
+    adminIds: z.array(z.coerce.number()).optional(),
+    memberIds: z.array(z.coerce.number()).optional(),
+    tasks: z.array(projectTaskInputSchema).optional(),
+  })
+  .refine((body) => !body.endDate || new Date(body.endDate) > new Date(body.startDate), {
+    message: "End date must be after start date",
+    path: ["endDate"],
+  });
 
 /**
  * @swagger
@@ -194,7 +201,7 @@ router.post(
     }
 
     const full = await prisma.project.findUnique({ where: { id: project.id }, include: PROJECT_INCLUDE });
-    await writeAuditLog({ actorId: req.user!.id, entityType: "Project", entityId: project.id, action: "Create", after: full });
+    await writeAuditLog({ actorId: req.user!.id, impersonatedById: req.user!.impersonatedBy ?? null, entityType: "Project", entityId: project.id, action: "Create", after: full });
     res.status(201).json(serializeProject(full));
   })
 );
@@ -361,7 +368,7 @@ router.post(
           });
         }
 
-        await writeAuditLog({ actorId: req.user!.id, entityType: "Project", entityId: project.id, action: "BulkImport", after: project });
+        await writeAuditLog({ actorId: req.user!.id, impersonatedById: req.user!.impersonatedBy ?? null, entityType: "Project", entityId: project.id, action: "BulkImport", after: project });
         successRows += 1;
       } catch (e: any) {
         errors.push({ row: idx + 1, errors: [e.message ?? "Unknown error"] });
@@ -403,6 +410,8 @@ const patchProjectSchema = z.object({
   endDate: z.string().nullable().optional(),
   status: z.enum(["ACTIVE", "ON_HOLD", "ARCHIVED", "COMPLETED"]).optional(),
   billingType: z.enum([PROJECT_BILLING_TYPE.T_AND_M, PROJECT_BILLING_TYPE.FIXED, PROJECT_BILLING_TYPE.MANAGED_SERVICES]).optional(),
+  sendTimesheetToClient: z.boolean().optional(),
+  clientContactEmail: z.string().email().nullable().optional(),
 });
 
 /**
@@ -424,6 +433,15 @@ router.patch(
     const before = await prisma.project.findUnique({ where: { id } });
     if (!before) throw ApiError.notFound("Project not found");
 
+    // Validated against the EFFECTIVE dates (a partial patch can touch only
+    // one of the two), not just whichever field(s) this request happens to
+    // include.
+    const effectiveStart = body.startDate ? new Date(body.startDate) : before.startDate;
+    const effectiveEnd = body.endDate === null ? null : body.endDate ? new Date(body.endDate) : before.endDate;
+    if (effectiveEnd && effectiveEnd <= effectiveStart) {
+      throw ApiError.badRequest("End date must be after start date");
+    }
+
     await prisma.project.update({
       where: { id },
       data: {
@@ -433,10 +451,12 @@ router.patch(
         endDate: body.endDate ? new Date(body.endDate) : body.endDate === null ? null : undefined,
         status: body.status,
         billingType: body.billingType,
+        sendTimesheetToClient: body.sendTimesheetToClient,
+        clientContactEmail: body.clientContactEmail === null ? null : body.clientContactEmail,
       },
     });
     const project = await prisma.project.findUnique({ where: { id }, include: PROJECT_INCLUDE });
-    await writeAuditLog({ actorId: req.user!.id, entityType: "Project", entityId: id, action: "Update", before, after: project });
+    await writeAuditLog({ actorId: req.user!.id, impersonatedById: req.user!.impersonatedBy ?? null, entityType: "Project", entityId: id, action: "Update", before, after: project });
     res.json(serializeProject(project));
   })
 );
@@ -477,7 +497,7 @@ router.delete(
     await prisma.projectTask.deleteMany({ where: { projectId: id } });
     await prisma.projectMember.deleteMany({ where: { projectId: id } });
     await prisma.project.delete({ where: { id } });
-    await writeAuditLog({ actorId: req.user!.id, entityType: "Project", entityId: id, action: "Delete", before });
+    await writeAuditLog({ actorId: req.user!.id, impersonatedById: req.user!.impersonatedBy ?? null, entityType: "Project", entityId: id, action: "Delete", before });
     res.status(204).send();
   })
 );
@@ -518,7 +538,7 @@ router.post(
         active: body.status ? body.status === "ACTIVE" : true,
       },
     });
-    await writeAuditLog({ actorId: req.user!.id, entityType: "ProjectTask", entityId: task.id, action: "Create", after: task });
+    await writeAuditLog({ actorId: req.user!.id, impersonatedById: req.user!.impersonatedBy ?? null, entityType: "ProjectTask", entityId: task.id, action: "Create", after: task });
     res.status(201).json({
       id: task.id,
       projectId: task.projectId,
@@ -565,7 +585,7 @@ router.post(
       },
       include: { user: true },
     });
-    await writeAuditLog({ actorId: req.user!.id, entityType: "ProjectMember", entityId: member.id, action: "Create", after: member });
+    await writeAuditLog({ actorId: req.user!.id, impersonatedById: req.user!.impersonatedBy ?? null, entityType: "ProjectMember", entityId: member.id, action: "Create", after: member });
     res.status(201).json({
       id: member.id,
       projectId: member.projectId,
@@ -601,8 +621,150 @@ router.delete(
       if (adminCount <= 1) throw ApiError.badRequest("A project must have at least one admin");
     }
     await prisma.projectMember.delete({ where: { id: member.id } });
-    await writeAuditLog({ actorId: req.user!.id, entityType: "ProjectMember", entityId: member.id, action: "Delete", before: member });
+    await writeAuditLog({ actorId: req.user!.id, impersonatedById: req.user!.impersonatedBy ?? null, entityType: "ProjectMember", entityId: member.id, action: "Delete", before: member });
     res.status(204).send();
+  })
+);
+
+function toIsoDate(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+async function assertClientSendEnabled(projectId: number) {
+  const project = await prisma.project.findUnique({ where: { id: projectId } });
+  if (!project) throw ApiError.notFound("Project not found");
+  if (!project.sendTimesheetToClient) {
+    throw ApiError.conflict("Client timesheet sending isn't enabled for this project. Enable it on the project's settings first.");
+  }
+  return project;
+}
+
+const periodQuerySchema = z.object({ periodStart: z.string().min(1), periodEnd: z.string().min(1) });
+
+/**
+ * @swagger
+ * /projects/{id}/client-send/preview:
+ *   get:
+ *     summary: List every user's logged time entries for a project within a period, for review before sending to the client
+ *     tags: [Projects]
+ *     security: [{ bearerAuth: [] }]
+ */
+router.get(
+  "/:id/client-send/preview",
+  requireAuth,
+  requireRole(ROLES.SUPER_ADMIN, ROLES.PROJECT_ADMIN),
+  asyncHandler(async (req, res) => {
+    const projectId = Number(req.params.id);
+    await assertProjectScope(req.user!, projectId);
+    const project = await assertClientSendEnabled(projectId);
+    const { periodStart, periodEnd } = periodQuerySchema.parse(req.query);
+
+    const entries = await prisma.timesheetEntry.findMany({
+      where: {
+        projectTask: { projectId },
+        entryDate: { gte: new Date(periodStart), lte: new Date(periodEnd) },
+        hours: { gt: 0 },
+      },
+      include: { projectTask: true, timesheet: { include: { user: true } } },
+      orderBy: [{ entryDate: "asc" }],
+    });
+
+    res.json({
+      project: { id: project.id, name: project.name, code: project.code },
+      defaultRecipientEmail: project.clientContactEmail,
+      periodStart,
+      periodEnd,
+      totalHours: entries.reduce((s, e) => s + e.hours, 0),
+      entries: entries.map((e) => ({
+        entryId: e.id,
+        userId: e.timesheet.userId,
+        userName: e.timesheet.user.name,
+        taskName: e.projectTask.name,
+        entryDate: toIsoDate(e.entryDate),
+        hours: e.hours,
+        notes: e.notes,
+      })),
+    });
+  })
+);
+
+const clientSendSchema = z.object({
+  recipientEmail: z.string().email(),
+  periodStart: z.string().min(1),
+  periodEnd: z.string().min(1),
+  entryIds: z.array(z.coerce.number()).min(1, "Select at least one entry to send"),
+});
+
+/**
+ * @swagger
+ * /projects/{id}/client-send:
+ *   post:
+ *     summary: Send the selected timesheet entries to the client as a single file (placeholder delivery — see README "Swap points" for wiring a real email provider)
+ *     tags: [Projects]
+ *     security: [{ bearerAuth: [] }]
+ */
+router.post(
+  "/:id/client-send",
+  requireAuth,
+  requireRole(ROLES.SUPER_ADMIN, ROLES.PROJECT_ADMIN),
+  asyncHandler(async (req, res) => {
+    const projectId = Number(req.params.id);
+    await assertProjectScope(req.user!, projectId);
+    const project = await assertClientSendEnabled(projectId);
+    const body = clientSendSchema.parse(req.body);
+
+    const entries = await prisma.timesheetEntry.findMany({
+      where: { id: { in: body.entryIds }, projectTask: { projectId } },
+      include: { projectTask: true, timesheet: { include: { user: true } } },
+    });
+    if (entries.length === 0) throw ApiError.badRequest("None of the selected entries belong to this project");
+
+    const totalHours = entries.reduce((s, e) => s + e.hours, 0);
+    const fileName = `${project.code}_Timesheet_${body.periodStart}_to_${body.periodEnd}.xlsx`;
+
+    const send = await prisma.clientTimesheetSend.create({
+      data: {
+        projectId,
+        sentById: req.user!.id,
+        recipientEmail: body.recipientEmail,
+        periodStart: new Date(body.periodStart),
+        periodEnd: new Date(body.periodEnd),
+        entryIds: entries.map((e) => e.id).join(","),
+        entryCount: entries.length,
+        totalHours,
+        fileName,
+      },
+    });
+
+    // No transactional email provider is wired up in this build (see
+    // README "Swap points") — delivery is a logged placeholder, same
+    // pattern as notify.ts, but the generated file and full audit record
+    // (ClientTimesheetSend) are real and downloadable via
+    // GET /client-sends/:id/download.
+    // eslint-disable-next-line no-console
+    console.log(`[client-send] "${fileName}" (${entries.length} entries, ${totalHours}h) queued for ${body.recipientEmail}`);
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      impersonatedById: req.user!.impersonatedBy ?? null,
+      entityType: "ClientTimesheetSend",
+      entityId: send.id,
+      action: "Send",
+      after: send,
+    });
+
+    res.status(201).json({
+      id: send.id,
+      projectId: send.projectId,
+      recipientEmail: send.recipientEmail,
+      periodStart: toIsoDate(send.periodStart),
+      periodEnd: toIsoDate(send.periodEnd),
+      entryCount: send.entryCount,
+      totalHours: send.totalHours,
+      fileName: send.fileName,
+      createdAt: send.createdAt,
+      downloadUrl: `/api/v1/client-sends/${send.id}/download`,
+    });
   })
 );
 

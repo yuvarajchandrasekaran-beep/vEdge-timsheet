@@ -48,7 +48,7 @@ router.patch(
         active: body.status ? body.status === "ACTIVE" : undefined,
       },
     });
-    await writeAuditLog({ actorId: req.user!.id, entityType: "ProjectTask", entityId: id, action: "Update", before: existing, after: task });
+    await writeAuditLog({ actorId: req.user!.id, impersonatedById: req.user!.impersonatedBy ?? null, entityType: "ProjectTask", entityId: id, action: "Update", before: existing, after: task });
     res.json({
       id: task.id,
       projectId: task.projectId,
@@ -87,7 +87,7 @@ router.delete(
     }
 
     await prisma.projectTask.delete({ where: { id } });
-    await writeAuditLog({ actorId: req.user!.id, entityType: "ProjectTask", entityId: id, action: "Delete", before: existing });
+    await writeAuditLog({ actorId: req.user!.id, impersonatedById: req.user!.impersonatedBy ?? null, entityType: "ProjectTask", entityId: id, action: "Delete", before: existing });
     res.status(204).send();
   })
 );

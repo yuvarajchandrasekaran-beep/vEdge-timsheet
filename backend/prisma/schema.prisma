@@ -60,9 +60,11 @@ model User {
   approvalsActed    Approval[]        @relation("ApproverActions")
   notifications     Notification[]
   auditLogs         AuditLog[]        @relation("AuditActor")
+  auditLogsImpersonated AuditLog[]    @relation("AuditImpersonator")
   importBatches     ImportBatch[]     @relation("ImportUploader")
   delegationsFrom   Delegation[]      @relation("DelegationFrom")
   delegationsTo     Delegation[]      @relation("DelegationTo")
+  clientTimesheetSends ClientTimesheetSend[] @relation("ClientSendSentBy")
 
   @@map("users")
 }
@@ -96,6 +98,12 @@ model Project {
   // roleOnProject = "Project Admin" (see ProjectMember below).
   tasks         ProjectTask[]
   members       ProjectMember[]
+
+  // Client timesheet delivery (per client-project combination — a project
+  // belongs to exactly one client, so this lives directly on Project).
+  sendTimesheetToClient Boolean @default(false)
+  clientContactEmail    String? // prefilled default on the send screen, editable per send
+  clientSends           ClientTimesheetSend[]
 
   @@map("projects")
 }
@@ -136,7 +144,11 @@ model Timesheet {
   userId        Int
   user          User     @relation(fields: [userId], references: [id])
   weekStartDate DateTime
-  status        String   @default("DRAFT") // DRAFT|SUBMITTED|APPROVED_L1|APPROVED_L2|REJECTED|RECALLED
+  // Single-level approval: Project Admin only (no more L1/L2 split — see
+  // services/approvalRouting.ts). APPROVED is reached either by the Project
+  // Admin acting, or immediately at submit time if the submitter is
+  // themselves an admin of every project on this timesheet (self-approval).
+  status        String   @default("DRAFT") // DRAFT|SUBMITTED|APPROVED|REJECTED|RECALLED
   weekNotes     String?
   submittedAt   DateTime?
   createdAt     DateTime @default(now())
@@ -167,7 +179,7 @@ model Approval {
   id          Int       @id @default(autoincrement())
   timesheetId Int
   timesheet   Timesheet @relation(fields: [timesheetId], references: [id])
-  level       Int       // 1 or 2
+  level       Int       @default(1) // always 1 now — single-level (Project Admin) approval; column kept for existing history rows
   approverId  Int
   approver    User      @relation("ApproverActions", fields: [approverId], references: [id])
   action      String    // APPROVED | REJECTED
@@ -175,6 +187,31 @@ model Approval {
   actedAt     DateTime  @default(now())
 
   @@map("approvals")
+}
+
+/**
+ * A record of one "send this project's timesheet to the client" action —
+ * the actual email delivery is a logged placeholder (this app has never had
+ * a real SMTP/email-API provider wired up anywhere, see notify.ts), but the
+ * review/select/send workflow, the generated file, and this audit record
+ * are all real.
+ */
+model ClientTimesheetSend {
+  id             Int      @id @default(autoincrement())
+  projectId      Int
+  project        Project  @relation(fields: [projectId], references: [id])
+  sentById       Int
+  sentBy         User     @relation("ClientSendSentBy", fields: [sentById], references: [id])
+  recipientEmail String
+  periodStart    DateTime
+  periodEnd      DateTime
+  entryIds       String   // JSON-encoded array of included TimesheetEntry ids
+  entryCount     Int      @default(0)
+  totalHours     Float    @default(0)
+  fileName       String
+  createdAt      DateTime @default(now())
+
+  @@map("client_timesheet_sends")
 }
 
 model Delegation {
@@ -220,6 +257,11 @@ model AuditLog {
   id          Int      @id @default(autoincrement())
   actorId     Int?
   actor       User?    @relation("AuditActor", fields: [actorId], references: [id])
+  // Set only when the action was performed during a Super Admin impersonation
+  // session — actorId is still the impersonated user (whose data changed),
+  // impersonatedById records who was really behind the wheel.
+  impersonatedById Int?
+  impersonatedBy   User? @relation("AuditImpersonator", fields: [impersonatedById], references: [id])
   entityType  String
   entityId    Int?
   action      String

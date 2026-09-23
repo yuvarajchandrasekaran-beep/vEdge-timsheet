@@ -1,4 +1,4 @@
-import type { Timesheet } from "../types";
+import type { Timesheet, TimesheetEntry } from "../types";
 import type { TimesheetEntryInput } from "../hooks/useTimesheets";
 import { getWeekDays } from "./week";
 
@@ -33,6 +33,41 @@ export function buildRowsFromTimesheet(timesheet: Timesheet | undefined, weekSta
     if (days.includes(entry.entryDate)) {
       row.hours[entry.entryDate] = entry.hours ? String(entry.hours) : "";
       row.notes[entry.entryDate] = entry.notes ?? "";
+    }
+  }
+
+  return Array.from(byTask.values());
+}
+
+/**
+ * Same idea as buildRowsFromTimesheet, but merges entries from SEVERAL weeks'
+ * timesheets into one row per project/task spanning every date in the whole
+ * period — used by the Monthly/Fortnight views' single continuous grid
+ * (one row per task, one column per day across the whole period, same shape
+ * as the Weekly view rather than a separate mini-table per week).
+ */
+export function buildRowsFromTimesheets(timesheets: (Timesheet | undefined)[], allDates: string[]): GridRow[] {
+  const byTask = new Map<string, GridRow>();
+  const entryLists: TimesheetEntry[][] = timesheets.map((t) => t?.entries ?? []);
+
+  for (const entries of entryLists) {
+    for (const entry of entries) {
+      let row = byTask.get(entry.projectTaskId);
+      if (!row) {
+        row = {
+          projectTaskId: entry.projectTaskId,
+          projectId: entry.projectId,
+          projectName: entry.projectName,
+          taskName: entry.taskName,
+          hours: Object.fromEntries(allDates.map((d) => [d, ""])),
+          notes: Object.fromEntries(allDates.map((d) => [d, ""])),
+        };
+        byTask.set(entry.projectTaskId, row);
+      }
+      if (allDates.includes(entry.entryDate)) {
+        row.hours[entry.entryDate] = entry.hours ? String(entry.hours) : "";
+        row.notes[entry.entryDate] = entry.notes ?? "";
+      }
     }
   }
 

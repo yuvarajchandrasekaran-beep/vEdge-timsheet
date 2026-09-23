@@ -12,9 +12,11 @@ import {
   YAxis,
 } from "recharts";
 import { useReport, useClientAuditReport, useExportReport, useScheduleReport } from "../hooks/useReports";
+import { useAuth } from "../hooks/useAuth";
 import { usePageHeader } from "../hooks/usePageHeader";
 import { useClients } from "../hooks/useProjects";
 import { useDepartments } from "../hooks/useDepartments";
+import { getApiErrorMessage } from "../api/client";
 import type { ReportFilters, ReportKey } from "../types";
 import { ROLE_LABELS } from "../types";
 import { LoadingBlock } from "../components/common/Spinner";
@@ -36,6 +38,12 @@ const REPORT_OPTIONS: { value: ReportKey; label: string }[] = [
   { value: "client-audit", label: "Client Audit Report" },
 ];
 
+// Mirrors backend/src/routes/reports.ts's INDIVIDUAL_USER_REPORT_KEYS — the
+// rest are org/manager-level views (approval-compliance, missing-timesheets,
+// audit-trail, client-audit) an Individual User's own-data-only access
+// doesn't cover, so they're hidden here rather than offered and then 403'd.
+const INDIVIDUAL_USER_REPORT_KEYS: ReadonlySet<ReportKey> = new Set(["timesheet-summary", "overtime", "project-utilization"]);
+
 const DONUT_PALETTE = ["#1B4298", "#00AEEF", "#9DDCF9", "#16A34A", "#F59E0B", "#94A3B8"];
 
 function defaultFilters(): ReportFilters {
@@ -49,14 +57,34 @@ function defaultFilters(): ReportFilters {
 }
 
 export default function ReportsPage() {
-  usePageHeader("Reports & Analytics", "Organization-wide utilization, compliance and audit reporting");
+  const { hasRole } = useAuth();
+  const isIndividualUser = hasRole("INDIVIDUAL_USER");
+  usePageHeader(
+    "Reports & Analytics",
+    isIndividualUser ? "Your own timesheet and overtime history" : "Organization-wide utilization, compliance and audit reporting"
+  );
+  const reportOptions = isIndividualUser
+    ? REPORT_OPTIONS.filter((o) => INDIVIDUAL_USER_REPORT_KEYS.has(o.value))
+    : REPORT_OPTIONS;
   const [reportKey, setReportKey] = useState<ReportKey>("project-utilization");
   const [draft, setDraft] = useState<ReportFilters>(defaultFilters());
   const [applied, setApplied] = useState<ReportFilters>(draft);
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [dateError, setDateError] = useState<string | null>(null);
+
+  function handleGenerate() {
+    if (draft.dateFrom && draft.dateTo && draft.dateTo < draft.dateFrom) {
+      setDateError("To date must be on or after the From date.");
+      return;
+    }
+    setDateError(null);
+    setApplied(draft);
+  }
 
   const isClientAudit = reportKey === "client-audit";
-  const { data: clients } = useClients();
+  // GET /clients 403s for an Individual User — skip the call for them rather
+  // than firing a request that's guaranteed to fail.
+  const { data: clients } = useClients(!isIndividualUser);
   const { data: departments } = useDepartments();
   const reportQuery = useReport(reportKey, applied, !isClientAudit);
   const clientAuditQuery = useClientAuditReport(applied, isClientAudit);
@@ -71,18 +99,20 @@ export default function ReportsPage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex justify-end">
-        <button onClick={() => setScheduleOpen(true)} className="btn-secondary">
-          <IconBarChart size={16} />
-          Schedule Report
-        </button>
-      </div>
+      {!isIndividualUser && (
+        <div className="flex justify-end">
+          <button onClick={() => setScheduleOpen(true)} className="btn-secondary">
+            <IconBarChart size={16} />
+            Schedule Report
+          </button>
+        </div>
+      )}
 
       <div className="rounded-2xl bg-white p-4 shadow-soft ring-1 ring-gray-100">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
           <FilterField label="Report type">
             <select value={reportKey} onChange={(e) => setReportKey(e.target.value as ReportKey)} className="input">
-              {REPORT_OPTIONS.map((o) => (
+              {reportOptions.map((o) => (
                 <option key={o.value} value={o.value}>
                   {o.label}
                 </option>
@@ -95,16 +125,18 @@ export default function ReportsPage() {
           <FilterField label="To">
             <input type="date" value={draft.dateTo} onChange={(e) => setDraft((f) => ({ ...f, dateTo: e.target.value }))} className="input" />
           </FilterField>
-          <FilterField label="Client">
-            <select value={draft.clientId ?? ""} onChange={(e) => setDraft((f) => ({ ...f, clientId: e.target.value || undefined }))} className="input">
-              <option value="">All clients</option>
-              {clients?.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </FilterField>
+          {!isIndividualUser && (
+            <FilterField label="Client">
+              <select value={draft.clientId ?? ""} onChange={(e) => setDraft((f) => ({ ...f, clientId: e.target.value || undefined }))} className="input">
+                <option value="">All clients</option>
+                {clients?.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </FilterField>
+          )}
           <FilterField label="Department">
             <select
               value={draft.departmentId ?? ""}
@@ -128,8 +160,9 @@ export default function ReportsPage() {
             </select>
           </FilterField>
         </div>
+        {dateError && <p className="mt-3 text-sm text-status-danger">{dateError}</p>}
         <div className="mt-3 flex justify-end">
-          <button onClick={() => setApplied(draft)} className="btn-primary">
+          <button onClick={handleGenerate} className="btn-primary">
             Generate
           </button>
         </div>
@@ -424,6 +457,9 @@ function ScheduleReportModal({ open, onClose, reportKey }: { open: boolean; onCl
           <FilterField label="Recipients (comma-separated emails)">
             <input value={recipients} onChange={(e) => setRecipients(e.target.value)} placeholder="hr@vivid-edge.com, admin@vivid-edge.com" className="input" />
           </FilterField>
+          {schedule.isError && (
+            <p className="text-sm text-status-danger">{getApiErrorMessage(schedule.error, "Couldn't schedule this report.")}</p>
+          )}
         </div>
       )}
     </Modal>

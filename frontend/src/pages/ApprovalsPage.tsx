@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useApprovalsPending, useApproveTimesheet, useBulkApprove, useRejectTimesheet } from "../hooks/useApprovals";
+import { useDepartments } from "../hooks/useDepartments";
 import { usePageHeader } from "../hooks/usePageHeader";
-import type { ApprovalLevel } from "../types";
 import { Avatar } from "../components/common/Avatar";
 import { Badge } from "../components/common/Badge";
 import { LoadingBlock } from "../components/common/Spinner";
@@ -11,7 +11,9 @@ import { Pagination } from "../components/common/Pagination";
 import { Modal } from "../components/common/Modal";
 import { ROLE_LABELS } from "../types";
 import { formatDateTime, formatHoursMinutes, formatWeekRange } from "../utils/format";
-import { IconCheck, IconCheckSquare, IconX } from "../components/common/icons";
+import { IconCheck, IconCheckSquare, IconSearch, IconX } from "../components/common/icons";
+import { useToast } from "../components/common/Toast";
+import { getApiErrorMessage } from "../api/client";
 
 type Tab = "PENDING" | "APPROVED" | "REJECTED";
 const TABS: { key: Tab; label: string }[] = [
@@ -22,17 +24,36 @@ const TABS: { key: Tab; label: string }[] = [
 
 const PAGE_SIZE = 10;
 
-export default function ApprovalsPage({ level }: { level: ApprovalLevel }) {
+export default function ApprovalsPage() {
+  const { showToast } = useToast();
   const [tab, setTab] = useState<Tab>("PENDING");
   const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const [department, setDepartment] = useState("");
+  const [minPendingDays, setMinPendingDays] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [rejectTarget, setRejectTarget] = useState<{ timesheetId: string; userName: string } | null>(null);
   const [rejectComment, setRejectComment] = useState("");
 
-  const query = useApprovalsPending({ level, status: tab, page, pageSize: PAGE_SIZE });
+  const { data: departments } = useDepartments();
+  const query = useApprovalsPending({
+    status: tab,
+    page,
+    pageSize: PAGE_SIZE,
+    search: search || undefined,
+    department: department || undefined,
+    pendingDays: minPendingDays ? Number(minPendingDays) : undefined,
+  });
   const approveMutation = useApproveTimesheet();
   const rejectMutation = useRejectTimesheet();
   const bulkApprove = useBulkApprove();
+
+  function resetFilters() {
+    setSearch("");
+    setDepartment("");
+    setMinPendingDays("");
+    setPage(1);
+  }
 
   const items = query.data?.data ?? [];
   const total = query.data?.meta.total ?? 0;
@@ -61,10 +82,7 @@ export default function ApprovalsPage({ level }: { level: ApprovalLevel }) {
     setSelected(new Set());
   }
 
-  const title = level === "L1" ? "Approvals — Level 1" : "Approvals — Level 2";
-  const subtitle =
-    level === "L1" ? "Project Admin review of direct reports' timesheets" : "HR Admin final review of submitted timesheets";
-  usePageHeader(title, subtitle);
+  usePageHeader("Approvals", "Project Admin review of your projects' submitted timesheets");
 
   return (
     <div className="flex min-h-full flex-col gap-5">
@@ -88,7 +106,17 @@ export default function ApprovalsPage({ level }: { level: ApprovalLevel }) {
             <button
               onClick={() =>
                 bulkApprove.mutate(Array.from(selected), {
-                  onSuccess: () => setSelected(new Set()),
+                  onSuccess: (data: { results: { ok: boolean }[] }) => {
+                    const okCount = data.results.filter((r) => r.ok).length;
+                    showToast(
+                      okCount === data.results.length
+                        ? `Approved ${okCount} timesheet${okCount === 1 ? "" : "s"}.`
+                        : `Approved ${okCount} of ${data.results.length} — some failed, see the list.`,
+                      okCount === data.results.length ? "success" : "error"
+                    );
+                    setSelected(new Set());
+                  },
+                  onError: (err) => showToast(getApiErrorMessage(err, "Bulk approve failed."), "error"),
                 })
               }
               disabled={bulkApprove.isPending}
@@ -96,6 +124,54 @@ export default function ApprovalsPage({ level }: { level: ApprovalLevel }) {
             >
               <IconCheckSquare size={16} />
               Bulk approve ({selected.size})
+            </button>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-3 border-b border-gray-100 p-4 sm:flex-row sm:items-center">
+          <div className="relative flex-1">
+            <IconSearch size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
+              placeholder="Search by employee name…"
+              className="input pl-9"
+            />
+          </div>
+          <select
+            value={department}
+            onChange={(e) => {
+              setDepartment(e.target.value);
+              setPage(1);
+            }}
+            className="input sm:w-48"
+          >
+            <option value="">All departments</option>
+            {departments?.map((d) => (
+              <option key={d.id} value={d.name}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+          <select
+            value={minPendingDays}
+            onChange={(e) => {
+              setMinPendingDays(e.target.value);
+              setPage(1);
+            }}
+            className="input sm:w-48"
+          >
+            <option value="">Any wait time</option>
+            <option value="1">Pending 1+ day</option>
+            <option value="3">Pending 3+ days</option>
+            <option value="7">Pending 7+ days</option>
+          </select>
+          {(search || department || minPendingDays) && (
+            <button onClick={resetFilters} className="text-sm font-medium text-brand-primary hover:underline">
+              Clear filters
             </button>
           )}
         </div>
@@ -165,7 +241,15 @@ export default function ApprovalsPage({ level }: { level: ApprovalLevel }) {
                         <td className="px-4 py-5">
                           <div className="flex items-center justify-end gap-2">
                             <button
-                              onClick={() => approveMutation.mutate({ timesheetId: item.timesheetId })}
+                              onClick={() =>
+                                approveMutation.mutate(
+                                  { timesheetId: item.timesheetId },
+                                  {
+                                    onSuccess: () => showToast(`Approved ${item.userName}'s timesheet.`, "success"),
+                                    onError: (err) => showToast(getApiErrorMessage(err, "Couldn't approve this timesheet."), "error"),
+                                  }
+                                )
+                              }
                               disabled={approveMutation.isPending}
                               className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-status-success hover:bg-emerald-100"
                               aria-label="Approve"
@@ -211,7 +295,14 @@ export default function ApprovalsPage({ level }: { level: ApprovalLevel }) {
                 if (!rejectTarget || !rejectComment.trim()) return;
                 rejectMutation.mutate(
                   { timesheetId: rejectTarget.timesheetId, comment: rejectComment.trim() },
-                  { onSuccess: () => setRejectTarget(null) }
+                  {
+                    onSuccess: () => {
+                      showToast(`Returned ${rejectTarget.userName}'s timesheet for correction.`, "success");
+                      setRejectTarget(null);
+                      setRejectComment("");
+                    },
+                    onError: (err) => showToast(getApiErrorMessage(err, "Couldn't return this timesheet."), "error"),
+                  }
                 );
               }}
               disabled={!rejectComment.trim() || rejectMutation.isPending}
@@ -231,6 +322,9 @@ export default function ApprovalsPage({ level }: { level: ApprovalLevel }) {
           placeholder="Explain what needs correction before this can be resubmitted…"
           className="w-full resize-none rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:border-brand-primary focus:outline-none focus:ring-1 focus:ring-brand-primary"
         />
+        {rejectMutation.isError && (
+          <p className="mt-2 text-sm text-status-danger">{getApiErrorMessage(rejectMutation.error, "Couldn't return this timesheet.")}</p>
+        )}
       </Modal>
     </div>
   );

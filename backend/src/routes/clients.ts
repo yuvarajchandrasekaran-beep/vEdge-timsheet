@@ -43,7 +43,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const body = createClientSchema.parse(req.body);
     const client = await prisma.client.create({ data: { name: body.name, status: body.status ?? "ACTIVE" } });
-    await writeAuditLog({ actorId: req.user!.id, entityType: "Client", entityId: client.id, action: "Create", after: client });
+    await writeAuditLog({ actorId: req.user!.id, impersonatedById: req.user!.impersonatedBy ?? null, entityType: "Client", entityId: client.id, action: "Create", after: client });
     res.status(201).json(client);
   })
 );

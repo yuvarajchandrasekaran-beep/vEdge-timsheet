@@ -6,14 +6,20 @@ import { requireAuth, requireRole } from "../middleware/auth";
 import { ROLES, REPORT_KEYS, ReportKey, PROJECT_MEMBER_ROLE } from "../constants/enums";
 import { getClientAuditReport, getReportData, getUtilizationOverview, ReportFilters } from "../services/reports";
 import { buildWorkbookFromRows, rowsToCsv } from "../services/excel";
+import { renderPdfTable } from "../services/pdfTable";
 import PDFDocument from "pdfkit";
 
 const router = Router();
 
 function parseFilters(req: any): ReportFilters {
+  const dateFrom = req.query.dateFrom ? String(req.query.dateFrom) : undefined;
+  const dateTo = req.query.dateTo ? String(req.query.dateTo) : undefined;
+  if (dateFrom && dateTo && new Date(dateTo) < new Date(dateFrom)) {
+    throw ApiError.badRequest("To date must be on or after the From date");
+  }
   return {
-    dateFrom: req.query.dateFrom ? String(req.query.dateFrom) : undefined,
-    dateTo: req.query.dateTo ? String(req.query.dateTo) : undefined,
+    dateFrom,
+    dateTo,
     clientId: req.query.clientId ? Number(req.query.clientId) : undefined,
     projectId: req.query.projectId ? Number(req.query.projectId) : undefined,
     departmentId: req.query.departmentId ? Number(req.query.departmentId) : undefined,
@@ -28,6 +34,22 @@ function assertValidKey(key: string): asserts key is ReportKey {
   }
 }
 
+// Report keys that are meaningfully scoped to "my own data" — the others
+// (approval-compliance, missing-timesheets, audit-trail, client-audit) are
+// org/manager-level views with no per-user filter to safely restrict them
+// to, so Individual Users don't get those at all.
+const INDIVIDUAL_USER_REPORT_KEYS: ReadonlySet<string> = new Set(["timesheet-summary", "overtime", "project-utilization"]);
+
+function applyIndividualUserScope(req: any, reportKey: string, filters: ReportFilters) {
+  if (req.user!.role !== ROLES.INDIVIDUAL_USER) return;
+  if (!INDIVIDUAL_USER_REPORT_KEYS.has(reportKey)) {
+    throw ApiError.forbidden("This report isn't available to your role — see Section 8 of the user manual.");
+  }
+  // Force, regardless of what the caller passed — an Individual User must
+  // never be able to pull another user's timesheet/overtime data.
+  filters.userId = req.user!.id;
+}
+
 /**
  * @swagger
  * /reports/{reportKey}:
@@ -39,11 +61,12 @@ function assertValidKey(key: string): asserts key is ReportKey {
 router.get(
   "/:reportKey",
   requireAuth,
-  requireRole(ROLES.SUPER_ADMIN, ROLES.HR_ADMIN, ROLES.PROJECT_ADMIN),
+  requireRole(ROLES.SUPER_ADMIN, ROLES.HR_ADMIN, ROLES.PROJECT_ADMIN, ROLES.INDIVIDUAL_USER),
   asyncHandler(async (req, res) => {
     const reportKey = String(req.params.reportKey);
     assertValidKey(reportKey);
     const filters = parseFilters(req);
+    applyIndividualUserScope(req, reportKey, filters);
 
     // Scope: a Project Admin only ever sees their own projects' data.
     if (req.user!.role === ROLES.PROJECT_ADMIN && !filters.projectId) {
@@ -52,6 +75,17 @@ router.get(
         select: { id: true },
       });
       if (owned.length === 1) filters.projectId = owned[0].id;
+    }
+    // Same simplification for an Individual User on the on-screen
+    // project-utilization view: only auto-scoped when unambiguous (exactly
+    // one project). With more than one, the existing utilization query has
+    // no "any of these projects" filter — a bigger change than this pass.
+    if (req.user!.role === ROLES.INDIVIDUAL_USER && reportKey === "project-utilization" && !filters.projectId) {
+      const memberOf = await prisma.project.findMany({
+        where: { members: { some: { userId: req.user!.id } } },
+        select: { id: true },
+      });
+      if (memberOf.length === 1) filters.projectId = memberOf[0].id;
     }
 
     if (reportKey === "client-audit") {
@@ -80,12 +114,13 @@ router.get(
 router.get(
   "/:reportKey/export",
   requireAuth,
-  requireRole(ROLES.SUPER_ADMIN, ROLES.HR_ADMIN, ROLES.PROJECT_ADMIN),
+  requireRole(ROLES.SUPER_ADMIN, ROLES.HR_ADMIN, ROLES.PROJECT_ADMIN, ROLES.INDIVIDUAL_USER),
   asyncHandler(async (req, res) => {
     const reportKey = String(req.params.reportKey);
     assertValidKey(reportKey);
     const format = String(req.query.format ?? "csv");
     const filters = parseFilters(req);
+    applyIndividualUserScope(req, reportKey, filters);
     if (reportKey === "client-audit" && !filters.clientId) {
       throw ApiError.badRequest("clientId is required for the Client Audit Report");
     }
@@ -109,24 +144,16 @@ router.get(
     if (format === "pdf") {
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `attachment; filename="${fileBase}.pdf"`);
-      const doc = new PDFDocument({ margin: 40, size: "A4", layout: "landscape" });
+      const doc = new PDFDocument({ margin: 36, size: "A4", layout: "landscape" });
       doc.pipe(res);
       doc.fontSize(16).fillColor("#1B4298").text("TimeSync", { continued: true }).fillColor("#000").text(`  —  ${reportKey}`);
       doc.fontSize(9).fillColor("#555").text(`Generated by ${req.user!.name} on ${new Date().toLocaleString()}`);
-      doc.moveDown();
-      const rowsArr = rows as Record<string, unknown>[];
-      if (rowsArr.length === 0) {
-        doc.fontSize(11).fillColor("#000").text("No data for the selected filters.");
-      } else {
-        const headers = Object.keys(rowsArr[0]);
-        doc.fontSize(9).fillColor("#000");
-        doc.text(headers.join("  |  "));
-        doc.moveDown(0.3);
-        rowsArr.slice(0, 500).forEach((row) => {
-          doc.text(headers.map((h) => String(row[h] ?? "")).join("  |  "));
-        });
+      const activeFilters = Object.entries(filters).filter(([, v]) => v !== undefined && v !== "");
+      if (activeFilters.length > 0) {
+        doc.text(`Filters: ${activeFilters.map(([k, v]) => `${k}=${v}`).join(", ")}`);
       }
-      doc.fontSize(8).fillColor("#888").text(`\nFilters applied: ${JSON.stringify(filters)}`, { align: "left" });
+      doc.moveDown(0.75);
+      renderPdfTable(doc, rows as Record<string, unknown>[]);
       doc.end();
       return;
     }
@@ -146,7 +173,10 @@ router.get(
 router.post(
   "/:reportKey/schedule",
   requireAuth,
-  requireRole(ROLES.SUPER_ADMIN, ROLES.HR_ADMIN),
+  // The "Schedule Report" button is shown to every role that can view
+  // reports (see ReportsPage.tsx) — Project Admin was missing here, so their
+  // click silently 403'd with no error surfaced by the modal.
+  requireRole(ROLES.SUPER_ADMIN, ROLES.HR_ADMIN, ROLES.PROJECT_ADMIN),
   asyncHandler(async (req, res) => {
     const reportKey = String(req.params.reportKey);
     assertValidKey(reportKey);

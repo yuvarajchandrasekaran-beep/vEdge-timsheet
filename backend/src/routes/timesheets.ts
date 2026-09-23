@@ -1,13 +1,14 @@
 import { Router } from "express";
 import { z } from "zod";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { asyncHandler } from "../utils/asyncHandler";
 import { ApiError } from "../utils/errors";
 import { requireAuth } from "../middleware/auth";
-import { validateEntries, EntryInput } from "../services/timesheetValidation";
+import { validateEntries, validateWeekSubmission, hasRequiredComment, commentRequiredIssue, EntryInput } from "../services/timesheetValidation";
 import { writeAuditLog } from "../utils/audit";
 import { notify } from "../services/notify";
-import { resolveLevel1Approver, resolveLevel2Approver } from "../services/approvalRouting";
+import { resolveApprover } from "../services/approvalRouting";
 import { TIMESHEET_STATUS } from "../constants/enums";
 
 const router = Router();
@@ -22,10 +23,6 @@ function addDays(date: Date, days: number): Date {
 
 function toIsoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
-}
-
-function toApprovalLevel(level: number): "L1" | "L2" {
-  return level === 2 ? "L2" : "L1";
 }
 
 function timesheetCode(id: number, weekStartDate: Date): string {
@@ -44,15 +41,24 @@ async function serializeTimesheet(timesheetId: number) {
   if (!timesheet) return null;
 
   const totalLogged = timesheet.entries.reduce((sum, e) => sum + e.hours, 0);
-  const validation = await validateEntries(
-    timesheet.userId,
-    timesheet.entries.map((e) => ({
-      projectTaskId: e.projectTaskId,
-      entryDate: toIsoDate(e.entryDate),
-      hours: e.hours,
-      notes: e.notes ?? undefined,
-    }))
-  );
+  const entryInputs: EntryInput[] = timesheet.entries.map((e) => ({
+    projectTaskId: e.projectTaskId,
+    entryDate: toIsoDate(e.entryDate),
+    hours: e.hours,
+    notes: e.notes ?? undefined,
+  }));
+  // Merges per-entry structural issues (assignment/window/cap/note-required)
+  // with the submit-time-only checks (weekly total, holiday, mandatory
+  // comment) so warnings like "this falls on a holiday" show up live in the
+  // grid, not just as a submit-time surprise — see validateWeekSubmission's
+  // docstring for why the latter don't also block autosave.
+  const validation = [
+    ...(await validateEntries(timesheet.userId, entryInputs)),
+    ...(await validateWeekSubmission(entryInputs, timesheet.weekNotes)),
+  ];
+  if (entryInputs.some((e) => e.hours > 0) && !hasRequiredComment(entryInputs, [timesheet.weekNotes])) {
+    validation.push(commentRequiredIssue(entryInputs));
+  }
 
   return {
     id: timesheet.id,
@@ -78,7 +84,6 @@ async function serializeTimesheet(timesheetId: number) {
     approvals: timesheet.approvals.map((a) => ({
       id: a.id,
       timesheetId: a.timesheetId,
-      level: toApprovalLevel(a.level),
       approverId: a.approverId,
       approverName: a.approver.name,
       action: a.action,
@@ -222,49 +227,69 @@ router.put(
 
 /**
  * @swagger
- * /timesheets/copy-last-week:
+ * /timesheets/copy:
  *   post:
- *     summary: Pre-fill a week's project/task rows from the prior week (hours reset to zero)
+ *     summary: Copy hours and project/task rows from the immediately preceding period of the same length (used by Daily/Weekly/Fortnight/Monthly views' Copy feature) — comments/notes are always left blank on the copy, only time and project/task assignment carry over
  *     tags: [Timesheets]
  *     security: [{ bearerAuth: [] }]
  */
 router.post(
-  "/copy-last-week",
+  "/copy",
   requireAuth,
   asyncHandler(async (req, res) => {
-    const { weekStart } = z.object({ weekStart: z.string() }).parse(req.body);
-    const weekStartDate = new Date(weekStart);
-    const priorWeekStart = addDays(weekStartDate, -7);
-
-    const priorTimesheet = await prisma.timesheet.findUnique({
-      where: { userId_weekStartDate: { userId: req.user!.id, weekStartDate: priorWeekStart } },
-      include: { entries: true },
+    const { weekStarts } = z.object({ weekStarts: z.array(z.string()).min(1) }).parse(req.body);
+    const targetWeekStarts = weekStarts.map((ws) => {
+      const d = new Date(ws);
+      if (isNaN(d.getTime())) throw ApiError.badRequest(`Invalid weekStart "${ws}"`);
+      return d;
     });
-    if (!priorTimesheet) throw ApiError.notFound("No prior week to copy from");
+    // The source period is the immediately preceding block of the SAME
+    // length (1 week for Weekly/Daily's own week, 2 for Fortnight, N for
+    // Monthly) — each target week copies from the source week exactly one
+    // period-length back, preserving day-of-week alignment within it.
+    const periodLengthDays = targetWeekStarts.length * 7;
 
-    let timesheet = await prisma.timesheet.findUnique({
-      where: { userId_weekStartDate: { userId: req.user!.id, weekStartDate } },
-    });
-    if (!timesheet) {
-      timesheet = await prisma.timesheet.create({ data: { userId: req.user!.id, weekStartDate, status: TIMESHEET_STATUS.DRAFT } });
-    }
-    if (!EDITABLE_STATUSES.includes(timesheet.status)) {
-      throw ApiError.conflict(`Timesheet is "${timesheet.status}" and can no longer be edited.`);
-    }
+    const results = [];
+    for (const weekStartDate of targetWeekStarts) {
+      const priorWeekStart = addDays(weekStartDate, -periodLengthDays);
+      const priorTimesheet = await prisma.timesheet.findUnique({
+        where: { userId_weekStartDate: { userId: req.user!.id, weekStartDate: priorWeekStart } },
+        include: { entries: true },
+      });
+      if (!priorTimesheet || priorTimesheet.entries.length === 0) continue;
 
-    const distinctTaskIds = [...new Set(priorTimesheet.entries.map((e) => e.projectTaskId))];
-    for (const taskId of distinctTaskIds) {
-      for (let i = 0; i < 7; i++) {
-        const date = addDays(weekStartDate, i);
-        await prisma.timesheetEntry.upsert({
-          where: { timesheetId_projectTaskId_entryDate: { timesheetId: timesheet.id, projectTaskId: taskId, entryDate: date } },
-          update: {},
-          create: { timesheetId: timesheet.id, projectTaskId: taskId, entryDate: date, hours: 0 },
-        });
+      let timesheet = await prisma.timesheet.findUnique({
+        where: { userId_weekStartDate: { userId: req.user!.id, weekStartDate } },
+      });
+      if (!timesheet) {
+        timesheet = await prisma.timesheet.create({ data: { userId: req.user!.id, weekStartDate, status: TIMESHEET_STATUS.DRAFT } });
       }
-    }
+      if (!EDITABLE_STATUSES.includes(timesheet.status)) {
+        throw ApiError.conflict(`Timesheet is "${timesheet.status}" and can no longer be edited.`);
+      }
 
-    res.json(await serializeTimesheet(timesheet.id));
+      const hoursByTaskAndOffset = new Map<string, number>();
+      for (const e of priorTimesheet.entries) {
+        const offsetDays = Math.round((e.entryDate.getTime() - priorWeekStart.getTime()) / 86400000);
+        hoursByTaskAndOffset.set(`${e.projectTaskId}:${offsetDays}`, e.hours);
+      }
+      const distinctTaskIds = [...new Set(priorTimesheet.entries.map((e) => e.projectTaskId))];
+      for (const taskId of distinctTaskIds) {
+        for (let i = 0; i < 7; i++) {
+          const date = addDays(weekStartDate, i);
+          const hours = hoursByTaskAndOffset.get(`${taskId}:${i}`) ?? 0;
+          await prisma.timesheetEntry.upsert({
+            where: { timesheetId_projectTaskId_entryDate: { timesheetId: timesheet.id, projectTaskId: taskId, entryDate: date } },
+            update: { hours, notes: null },
+            create: { timesheetId: timesheet.id, projectTaskId: taskId, entryDate: date, hours },
+          });
+        }
+      }
+      results.push(timesheet.id);
+    }
+    if (results.length === 0) throw ApiError.notFound("No prior period to copy from");
+
+    res.json(await Promise.all(results.map((id) => serializeTimesheet(id))));
   })
 );
 
@@ -288,6 +313,58 @@ router.get(
   })
 );
 
+type TimesheetWithEntries = Prisma.TimesheetGetPayload<{ include: { entries: true } }>;
+
+function toEntryInputs(timesheet: TimesheetWithEntries): EntryInput[] {
+  return timesheet.entries.map((e) => ({
+    projectTaskId: e.projectTaskId,
+    entryDate: toIsoDate(e.entryDate),
+    hours: e.hours,
+    notes: e.notes ?? undefined,
+  }));
+}
+
+/** Per-entry + per-week issues for one timesheet, excluding the mandatory-comment
+ * check (that's evaluated separately, across the whole submission batch). */
+async function collectSubmitIssues(timesheet: TimesheetWithEntries) {
+  const entryInputs = toEntryInputs(timesheet);
+  return [
+    ...(await validateEntries(timesheet.userId, entryInputs)),
+    ...(await validateWeekSubmission(entryInputs, timesheet.weekNotes)),
+  ];
+}
+
+/** Applies the actual status transition + approval/notification side effects for
+ * one timesheet — assumes validation has already passed. Shared by the single-week
+ * submit route and the batch (Month/Fortnight) submit route below. */
+async function performSubmit(timesheet: TimesheetWithEntries, actor: { id: number; name: string; impersonatedBy?: number | null }) {
+  const { approverIds, selfAdministered } = await resolveApprover(timesheet.id);
+
+  await prisma.timesheet.update({
+    where: { id: timesheet.id },
+    data: { status: TIMESHEET_STATUS.SUBMITTED, submittedAt: new Date() },
+  });
+  await writeAuditLog({
+    actorId: actor.id,
+    impersonatedById: actor.impersonatedBy ?? null,
+    entityType: "Timesheet",
+    entityId: timesheet.id,
+    action: "Submit",
+    after: timesheet,
+  });
+
+  if (selfAdministered) {
+    await prisma.approval.create({
+      data: { timesheetId: timesheet.id, level: 1, approverId: actor.id, action: "APPROVED", comment: "Auto-approved: submitter is a Project Admin for all logged projects." },
+    });
+    await prisma.timesheet.update({ where: { id: timesheet.id }, data: { status: TIMESHEET_STATUS.APPROVED } });
+  } else {
+    for (const approverId of approverIds) {
+      await notify(approverId, "PendingApproval", "New timesheet awaiting your approval", `${actor.name}'s week of ${toIsoDate(timesheet.weekStartDate)} is ready for review.`, { timesheetId: timesheet.id });
+    }
+  }
+}
+
 /**
  * @swagger
  * /timesheets/{id}/submit:
@@ -309,42 +386,74 @@ router.post(
     }
     if (timesheet.entries.length === 0) throw ApiError.badRequest("Cannot submit an empty timesheet");
 
-    const issues = await validateEntries(
-      timesheet.userId,
-      timesheet.entries.map((e) => ({ projectTaskId: e.projectTaskId, entryDate: toIsoDate(e.entryDate), hours: e.hours, notes: e.notes ?? undefined }))
-    );
+    const entryInputs = toEntryInputs(timesheet);
+    const issues = await collectSubmitIssues(timesheet);
+    if (!hasRequiredComment(entryInputs, [timesheet.weekNotes])) issues.push(commentRequiredIssue(entryInputs));
+
     const blocking = issues.filter((i) => i.severity === "blocking");
     if (blocking.length > 0) {
       throw ApiError.badRequest("Timesheet has unresolved validation errors and cannot be submitted.", "VALIDATION_BLOCKED", blocking);
     }
 
-    const { approverIds, selfAdministered } = await resolveLevel1Approver(id);
+    await performSubmit(timesheet, req.user!);
+    res.json(await serializeTimesheet(id));
+  })
+);
 
-    const updated = await prisma.timesheet.update({
-      where: { id },
-      data: { status: TIMESHEET_STATUS.SUBMITTED, submittedAt: new Date() },
-    });
-    await writeAuditLog({ actorId: req.user!.id, entityType: "Timesheet", entityId: id, action: "Submit", after: updated });
+/**
+ * @swagger
+ * /timesheets/submit-batch:
+ *   post:
+ *     summary: Submit several weeks at once (used by the Monthly/Fortnight views) — the mandatory-comment rule is checked once across the whole batch, not per week
+ *     tags: [Timesheets]
+ *     security: [{ bearerAuth: [] }]
+ */
+router.post(
+  "/submit-batch",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const { weekStarts } = z.object({ weekStarts: z.array(z.string()).min(1) }).parse(req.body);
 
-    if (selfAdministered) {
-      await prisma.approval.create({
-        data: { timesheetId: id, level: 1, approverId: req.user!.id, action: "APPROVED", comment: "Auto-approved: submitter is a Project Admin for all logged projects." },
+    const timesheets: TimesheetWithEntries[] = [];
+    for (const ws of weekStarts) {
+      const weekStartDate = new Date(ws);
+      if (isNaN(weekStartDate.getTime())) throw ApiError.badRequest(`Invalid weekStart "${ws}"`);
+      const timesheet = await prisma.timesheet.findUnique({
+        where: { userId_weekStartDate: { userId: req.user!.id, weekStartDate } },
+        include: { entries: true },
       });
-      await prisma.timesheet.update({ where: { id }, data: { status: TIMESHEET_STATUS.APPROVED_L1 } });
-      // Auto-approving L1 here skips doApprove's notify-L2 step, so it must
-      // be replicated here — otherwise a self-administered submission (e.g.
-      // a Project Admin logging their own time) never reaches HR's queue.
-      const l2 = await resolveLevel2Approver();
-      if (l2) {
-        await notify(l2, "PendingApproval", "Timesheet awaiting Level 2 approval", `${req.user!.name}'s week of ${toIsoDate(timesheet.weekStartDate)} has cleared Level 1 (auto-approved) and needs your final review.`, { timesheetId: id });
-      }
-    } else if (approverIds.length > 0) {
-      for (const approverId of approverIds) {
-        await notify(approverId, "PendingApproval", "New timesheet awaiting your approval", `${req.user!.name}'s week of ${toIsoDate(timesheet.weekStartDate)} is ready for Level 1 review.`, { timesheetId: id });
-      }
+      if (timesheet && timesheet.entries.length > 0) timesheets.push(timesheet);
+    }
+    if (timesheets.length === 0) throw ApiError.badRequest("Nothing to submit in this period");
+
+    const notEditable = timesheets.find((t) => !EDITABLE_STATUSES.includes(t.status));
+    if (notEditable) {
+      throw ApiError.conflict(`Week of ${toIsoDate(notEditable.weekStartDate)} is already "${notEditable.status}".`);
     }
 
-    res.json(await serializeTimesheet(id));
+    // Per-week structural/hours/holiday issues, plus ONE mandatory-comment
+    // check across every week in the batch together — a single comment
+    // anywhere in the period satisfies it for the whole batch.
+    const allIssues: Awaited<ReturnType<typeof collectSubmitIssues>> = [];
+    const allEntryInputs: EntryInput[] = [];
+    for (const t of timesheets) {
+      allIssues.push(...(await collectSubmitIssues(t)));
+      allEntryInputs.push(...toEntryInputs(t));
+    }
+    if (!hasRequiredComment(allEntryInputs, timesheets.map((t) => t.weekNotes))) {
+      allIssues.push(commentRequiredIssue(allEntryInputs));
+    }
+
+    const blocking = allIssues.filter((i) => i.severity === "blocking");
+    if (blocking.length > 0) {
+      throw ApiError.badRequest("This period has unresolved validation errors and cannot be submitted.", "VALIDATION_BLOCKED", blocking);
+    }
+
+    for (const t of timesheets) {
+      await performSubmit(t, req.user!);
+    }
+
+    res.json({ submitted: timesheets.map((t) => t.id) });
   })
 );
 
@@ -352,7 +461,7 @@ router.post(
  * @swagger
  * /timesheets/{id}/recall:
  *   post:
- *     summary: Recall a submitted timesheet back to Draft (pre-L1 only)
+ *     summary: Recall a submitted timesheet back to Draft (before approval only)
  *     tags: [Timesheets]
  *     security: [{ bearerAuth: [] }]
  */
@@ -365,10 +474,10 @@ router.post(
     if (!timesheet) throw ApiError.notFound("Timesheet not found");
     if (timesheet.userId !== req.user!.id) throw ApiError.forbidden();
     if (timesheet.status !== TIMESHEET_STATUS.SUBMITTED) {
-      throw ApiError.conflict("Only a Submitted timesheet (pending Level 1) can be recalled.");
+      throw ApiError.conflict("Only a Submitted timesheet pending approval can be recalled.");
     }
     const updated = await prisma.timesheet.update({ where: { id }, data: { status: TIMESHEET_STATUS.RECALLED } });
-    await writeAuditLog({ actorId: req.user!.id, entityType: "Timesheet", entityId: id, action: "Recall", after: updated });
+    await writeAuditLog({ actorId: req.user!.id, impersonatedById: req.user!.impersonatedBy ?? null, entityType: "Timesheet", entityId: id, action: "Recall", after: updated });
     res.json(await serializeTimesheet(id));
   })
 );

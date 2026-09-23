@@ -11,7 +11,7 @@ import type {
   ProjectTask,
 } from "../types";
 
-export function useClients() {
+export function useClients(enabled = true) {
   return useQuery({
     queryKey: ["clients"],
     queryFn: async () => {
@@ -26,6 +26,11 @@ export function useClients() {
       })) as Client[];
     },
     staleTime: 5 * 60 * 1000,
+    // GET /clients is Super Admin / HR Admin / Project Admin only — an
+    // Individual User gets a 403, so callers reachable by that role (the
+    // Projects page's Clients tab/filter, Reports' client filter) must pass
+    // `enabled: false` for them.
+    enabled,
   });
 }
 
@@ -107,6 +112,8 @@ export interface UpdateProjectPatch {
   endDate?: string | null;
   billingType?: BillingType;
   status?: ProjectStatus;
+  sendTimesheetToClient?: boolean;
+  clientContactEmail?: string | null;
 }
 
 export function useUpdateProject() {
@@ -206,9 +213,12 @@ export function useProjectImportDryRun() {
     mutationFn: async (file: File) => {
       const form = new FormData();
       form.append("file", file);
-      const res = await apiClient.post<ImportBatch>("/projects/import/dry-run", form, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      // Do NOT set Content-Type explicitly — axios/the browser must generate
+      // it themselves (multipart/form-data; boundary=...). Setting it here
+      // without a boundary produced an unparseable body that multer/busboy
+      // rejected with an opaque 500, surfaced to the user as a generic
+      // "Couldn't validate this file" error.
+      const res = await apiClient.post<ImportBatch>("/projects/import/dry-run", form);
       return res.data;
     },
   });

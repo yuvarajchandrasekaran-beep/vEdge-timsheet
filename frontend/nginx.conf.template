@@ -1,0 +1,35 @@
+worker_processes auto;
+events { worker_connections 1024; }
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    sendfile on;
+    gzip on;
+    gzip_types text/plain text/css application/javascript application/json image/svg+xml;
+
+    server {
+        listen __PORT__;
+        server_name _;
+        root /usr/share/nginx/html;
+        index index.html;
+
+        # Same-origin proxy to the backend Cloud Run service — the SPA's
+        # axios client calls a relative "/api/v1" path (see
+        # frontend/src/api/client.ts), exactly like Vite's dev-server proxy
+        # does locally, so no browser-side CORS or build-time API URL is
+        # needed. BACKEND_URL is injected at container start (see
+        # docker-entrypoint.sh), not baked in at build time.
+        location /api/ {
+            proxy_pass __BACKEND_URL__/api/;
+            proxy_set_header Host __BACKEND_HOST__;
+            proxy_ssl_server_name on;
+            proxy_http_version 1.1;
+            proxy_set_header X-Forwarded-Proto https;
+        }
+
+        location / {
+            try_files $uri /index.html;
+        }
+    }
+}

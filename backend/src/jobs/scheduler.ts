@@ -1,7 +1,7 @@
 import cron from "node-cron";
 import { prisma } from "../lib/prisma";
 import { notify } from "../services/notify";
-import { resolveLevel1Approver, resolveLevel2Approver } from "../services/approvalRouting";
+import { resolveApprover } from "../services/approvalRouting";
 import { ROLES, TIMESHEET_STATUS } from "../constants/enums";
 
 const ESCALATION_THRESHOLD_DAYS = 3;
@@ -40,30 +40,35 @@ export async function runReminderSweep() {
     );
   }
 
-  const pendingL1 = await prisma.timesheet.findMany({ where: { status: TIMESHEET_STATUS.SUBMITTED } });
-  for (const t of pendingL1) {
+  const pendingApprovals = await prisma.timesheet.findMany({ where: { status: TIMESHEET_STATUS.SUBMITTED } });
+  const superAdmins = await prisma.user.findMany({ where: { status: "ACTIVE", role: { name: ROLES.SUPER_ADMIN } } });
+  for (const t of pendingApprovals) {
     const pendingDays = t.submittedAt ? Math.floor((Date.now() - t.submittedAt.getTime()) / 86400000) : 0;
     if (pendingDays < 1) continue;
-    const { approverIds } = await resolveLevel1Approver(t.id);
+    const { approverIds } = await resolveApprover(t.id);
     for (const approverId of approverIds) {
-      await notify(approverId, "PendingApprovalReminder", "Timesheet awaiting your approval", "A timesheet is still pending your Level 1 review.", { timesheetId: t.id });
+      await notify(approverId, "PendingApprovalReminder", "Timesheet awaiting your approval", "A timesheet is still pending your approval.", { timesheetId: t.id });
     }
-    if (approverIds.length === 0) continue;
-    if (pendingDays > ESCALATION_THRESHOLD_DAYS) {
-      const l2 = await resolveLevel2Approver();
-      if (l2) await notify(l2, "EscalationAlert", "Escalation: approval stalled", `A Level 1 approval has been pending for ${pendingDays} days.`, { timesheetId: t.id });
+    // No second approval tier exists anymore — a stalled approval (no
+    // resolvable Project Admin, or still pending past the threshold)
+    // escalates straight to Super Admin, the only other approval-capable role.
+    if (approverIds.length === 0 || pendingDays > ESCALATION_THRESHOLD_DAYS) {
+      for (const admin of superAdmins) {
+        await notify(
+          admin.id,
+          "EscalationAlert",
+          "Escalation: approval stalled",
+          approverIds.length === 0
+            ? `A timesheet has no resolvable Project Admin approver and has been pending for ${pendingDays} days.`
+            : `An approval has been pending for ${pendingDays} days.`,
+          { timesheetId: t.id }
+        );
+      }
     }
-  }
-
-  const pendingL2 = await prisma.timesheet.findMany({ where: { status: TIMESHEET_STATUS.APPROVED_L1 } });
-  const l2Approver = await resolveLevel2Approver();
-  for (const t of pendingL2) {
-    if (!l2Approver) continue;
-    await notify(l2Approver, "PendingApprovalReminder", "Timesheet awaiting final approval", "A timesheet is still pending your Level 2 (final) review.", { timesheetId: t.id });
   }
 
   // eslint-disable-next-line no-console
-  console.log(`[scheduler] reminder sweep complete: ${usersWithoutSubmission.length} submission reminders, ${pendingL1.length} L1 + ${pendingL2.length} L2 approval reminders`);
+  console.log(`[scheduler] reminder sweep complete: ${usersWithoutSubmission.length} submission reminders, ${pendingApprovals.length} approval reminders`);
 }
 
 export function startScheduler() {

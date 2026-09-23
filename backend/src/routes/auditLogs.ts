@@ -55,7 +55,7 @@ router.get(
       prisma.auditLog.count({ where }),
       prisma.auditLog.findMany({
         where,
-        include: { actor: true },
+        include: { actor: true, impersonatedBy: true },
         orderBy: { createdAt: "desc" },
         skip,
         take,
@@ -71,6 +71,8 @@ router.get(
           action: l.action,
           actorId: l.actorId,
           actorName: l.actor?.name ?? "System",
+          impersonatedById: l.impersonatedById,
+          impersonatedByName: l.impersonatedBy?.name ?? null,
           timestamp: l.createdAt,
           details: summarizeChange(l.beforeState, l.afterState),
         })),

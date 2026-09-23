@@ -3,7 +3,7 @@ import { prisma } from "../lib/prisma";
 import { asyncHandler } from "../utils/asyncHandler";
 import { requireAuth } from "../middleware/auth";
 import { ROLES, TIMESHEET_STATUS, PROJECT_MEMBER_ROLE } from "../constants/enums";
-import { resolveLevel1Approver } from "../services/approvalRouting";
+import { resolveApprover } from "../services/approvalRouting";
 
 const router = Router();
 
@@ -47,12 +47,9 @@ router.get(
     if (user.role === ROLES.PROJECT_ADMIN || user.role === ROLES.SUPER_ADMIN) {
       const submitted = await prisma.timesheet.findMany({ where: { status: TIMESHEET_STATUS.SUBMITTED } });
       for (const t of submitted) {
-        const { approverIds } = await resolveLevel1Approver(t.id);
+        const { approverIds } = await resolveApprover(t.id);
         if (user.role === ROLES.SUPER_ADMIN || approverIds.includes(user.id)) approvalsPending++;
       }
-    }
-    if (user.role === ROLES.HR_ADMIN || user.role === ROLES.SUPER_ADMIN) {
-      approvalsPending += await prisma.timesheet.count({ where: { status: TIMESHEET_STATUS.APPROVED_L1 } });
     }
 
     const projectsActiveWhere =
