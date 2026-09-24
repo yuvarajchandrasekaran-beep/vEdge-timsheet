@@ -11,6 +11,24 @@ COPY prisma ./prisma
 # schema — the source file in the repo is untouched.
 RUN sed -i 's/provider = "sqlite"/provider = "mysql"/' prisma/schema.prisma
 
+# Prisma's default MySQL mapping for a bare `String` column is VARCHAR(191)
+# (SQLite has no such limit, which is why this never surfaces in local dev).
+# Every free-text or JSON-encoded field gets widened to TEXT here so saving a
+# longer comment/description/note — or a JSON blob like an audit-log snapshot
+# or a client-send's entry-id list — doesn't 500 in production.
+RUN sed -E -i \
+  -e 's/^([[:space:]]*description[[:space:]]+String\??)/\1 @db.Text/' \
+  -e 's/^([[:space:]]*weekNotes[[:space:]]+String\??)/\1 @db.Text/' \
+  -e 's/^([[:space:]]*notes[[:space:]]+String\??)/\1 @db.Text/' \
+  -e 's/^([[:space:]]*comment[[:space:]]+String\??)/\1 @db.Text/' \
+  -e 's/^([[:space:]]*payload[[:space:]]+String\??)/\1 @db.Text/' \
+  -e 's/^([[:space:]]*entryIds[[:space:]]+String\??)/\1 @db.Text/' \
+  -e 's/^([[:space:]]*errorReport[[:space:]]+String\??)/\1 @db.Text/' \
+  -e 's/^([[:space:]]*cadenceConfig[[:space:]]+String\??)/\1 @db.Text/' \
+  -e 's/^([[:space:]]*beforeState[[:space:]]+String\??)/\1 @db.Text/' \
+  -e 's/^([[:space:]]*afterState[[:space:]]+String\??)/\1 @db.Text/' \
+  prisma/schema.prisma
+
 COPY tsconfig.json ./
 COPY src ./src
 
