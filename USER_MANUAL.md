@@ -198,6 +198,12 @@ Click **Projects**. This screen has two tabs: **Projects** and **Clients**.
   that project or its tasks — this applies to both the "Project admins" and
   "Members" sections. Anyone else can still view the Members tab, but won't
   see the add/remove controls.
+- **The same restriction applies to the Overview tab**: only that project's
+  own admin (or Super Admin) can change its Status, Billing type, or the
+  "Send timesheets to the client" setting. Anyone else with view access to
+  the project (e.g. an assigned team member) sees a plain read-only summary
+  of these instead of editable controls, so it's clear at a glance who owns
+  that project's settings.
 - **Team members**: from a project's **Members** tab, assign the people who
   can log time against it. You can also set an individual's maximum hours
   per day/week on this project here (e.g. capping a part-time engagement at
