@@ -50,6 +50,7 @@ export function ProjectDetailModal({
   const [newMemberId, setNewMemberId] = useState("");
   const [memberError, setMemberError] = useState<string | null>(null);
   const [taskError, setTaskError] = useState<string | null>(null);
+  const [overviewError, setOverviewError] = useState<string | null>(null);
   const project = projectQuery.data;
 
   const admins = project?.members.filter((m) => m.roleOnProject === "Project Admin") ?? [];
@@ -128,73 +129,104 @@ export function ProjectDetailModal({
                 <Info label="Logged hours" value={formatHoursDecimal(project.loggedHours ?? 0)} />
               </div>
 
-              <div className="grid grid-cols-2 gap-3 border-t border-gray-100 pt-4 sm:grid-cols-2">
-                <label className="text-sm">
-                  <span className="mb-1 block font-medium text-gray-700">Status</span>
-                  <select
-                    defaultValue={project.status}
-                    className="input"
-                    onChange={(e) =>
-                      updateProject.mutate({ id: project.id, patch: { status: e.target.value as ProjectStatus } })
-                    }
-                  >
-                    {["ACTIVE", "ON_HOLD", "COMPLETED", "ARCHIVED"].map((s) => (
-                      <option key={s} value={s}>
-                        {s.replace("_", " ")}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="text-sm">
-                  <span className="mb-1 block font-medium text-gray-700">Billing type</span>
-                  <select
-                    defaultValue={project.billingType}
-                    className="input"
-                    onChange={(e) =>
-                      updateProject.mutate({ id: project.id, patch: { billingType: e.target.value as BillingType } })
-                    }
-                  >
-                    {Object.entries(BILLING_TYPE_LABELS).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
+              {canManage && (
+                <div className="grid grid-cols-2 gap-3 border-t border-gray-100 pt-4 sm:grid-cols-2">
+                  <label className="text-sm">
+                    <span className="mb-1 block font-medium text-gray-700">Status</span>
+                    <select
+                      defaultValue={project.status}
+                      className="input"
+                      onChange={(e) => {
+                        setOverviewError(null);
+                        updateProject.mutate(
+                          { id: project.id, patch: { status: e.target.value as ProjectStatus } },
+                          { onError: (err) => setOverviewError(getApiErrorMessage(err)) }
+                        );
+                      }}
+                    >
+                      {["ACTIVE", "ON_HOLD", "COMPLETED", "ARCHIVED"].map((s) => (
+                        <option key={s} value={s}>
+                          {s.replace("_", " ")}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-sm">
+                    <span className="mb-1 block font-medium text-gray-700">Billing type</span>
+                    <select
+                      defaultValue={project.billingType}
+                      className="input"
+                      onChange={(e) => {
+                        setOverviewError(null);
+                        updateProject.mutate(
+                          { id: project.id, patch: { billingType: e.target.value as BillingType } },
+                          { onError: (err) => setOverviewError(getApiErrorMessage(err)) }
+                        );
+                      }}
+                    >
+                      {Object.entries(BILLING_TYPE_LABELS).map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              )}
 
               <div className="border-t border-gray-100 pt-4">
                 <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Client billing</h3>
-                <label className="mb-3 flex items-center gap-2 text-sm text-gray-700">
-                  <input
-                    type="checkbox"
-                    checked={project.sendTimesheetToClient ?? false}
-                    onChange={(e) => updateProject.mutate({ id: project.id, patch: { sendTimesheetToClient: e.target.checked } })}
-                    className="h-4 w-4 rounded border-gray-300"
-                  />
-                  Send timesheets to the client for this project
-                </label>
-                {project.sendTimesheetToClient && (
-                  <div className="space-y-3">
-                    <label className="block text-sm">
-                      <span className="mb-1 block font-medium text-gray-700">Client contact email</span>
+                {canManage ? (
+                  <>
+                    <label className="mb-3 flex items-center gap-2 text-sm text-gray-700">
                       <input
-                        type="email"
-                        defaultValue={project.clientContactEmail ?? ""}
-                        placeholder="billing@client.com"
-                        className="input"
-                        onBlur={(e) =>
-                          updateProject.mutate({ id: project.id, patch: { clientContactEmail: e.target.value.trim() || null } })
-                        }
+                        type="checkbox"
+                        checked={project.sendTimesheetToClient ?? false}
+                        onChange={(e) => {
+                          setOverviewError(null);
+                          updateProject.mutate(
+                            { id: project.id, patch: { sendTimesheetToClient: e.target.checked } },
+                            { onError: (err) => setOverviewError(getApiErrorMessage(err)) }
+                          );
+                        }}
+                        className="h-4 w-4 rounded border-gray-300"
                       />
+                      Send timesheets to the client for this project
                     </label>
-                    <Link
-                      to={`/projects/${project.id}/client-send`}
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
-                    >
-                      Send timesheet to client…
-                    </Link>
-                  </div>
+                    {project.sendTimesheetToClient && (
+                      <div className="space-y-3">
+                        <label className="block text-sm">
+                          <span className="mb-1 block font-medium text-gray-700">Client contact email</span>
+                          <input
+                            type="email"
+                            defaultValue={project.clientContactEmail ?? ""}
+                            placeholder="billing@client.com"
+                            className="input"
+                            onBlur={(e) => {
+                              setOverviewError(null);
+                              updateProject.mutate(
+                                { id: project.id, patch: { clientContactEmail: e.target.value.trim() || null } },
+                                { onError: (err) => setOverviewError(getApiErrorMessage(err)) }
+                              );
+                            }}
+                          />
+                        </label>
+                        <Link
+                          to={`/projects/${project.id}/client-send`}
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
+                        >
+                          Send timesheet to client…
+                        </Link>
+                      </div>
+                    )}
+                    {overviewError && <p className="mt-2 text-xs text-status-danger">{overviewError}</p>}
+                  </>
+                ) : (
+                  <p className="text-sm text-gray-600">
+                    {project.sendTimesheetToClient
+                      ? `Enabled — sent to ${project.clientContactEmail ?? "no contact email set"}.`
+                      : "Not enabled for this project. Only this project's admin (or a Super Admin) can turn it on."}
+                  </p>
                 )}
               </div>
             </div>
