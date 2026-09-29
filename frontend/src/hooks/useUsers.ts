@@ -90,9 +90,14 @@ export function useUserImportDryRun() {
     mutationFn: async (file: File) => {
       const form = new FormData();
       form.append("file", file);
-      // Do NOT set Content-Type explicitly — see the identical comment in
-      // useProjects.ts's useProjectImportDryRun.
-      const res = await apiClient.post<ImportBatch>("/users/import/dry-run", form);
+      // apiClient defaults to "Content-Type: application/json" for every
+      // request; a plain .post() with a FormData body still carries that
+      // default, so the multipart boundary never gets set and multer sees
+      // no file at all (400 "No file uploaded", shown to the user as a
+      // generic "couldn't validate this file"). postForm() is axios's
+      // built-in escape hatch — it drops the JSON default and lets the
+      // browser generate the correct multipart Content-Type + boundary.
+      const res = await apiClient.postForm<ImportBatch>("/users/import/dry-run", form);
       return res.data;
     },
   });

@@ -213,12 +213,14 @@ export function useProjectImportDryRun() {
     mutationFn: async (file: File) => {
       const form = new FormData();
       form.append("file", file);
-      // Do NOT set Content-Type explicitly — axios/the browser must generate
-      // it themselves (multipart/form-data; boundary=...). Setting it here
-      // without a boundary produced an unparseable body that multer/busboy
-      // rejected with an opaque 500, surfaced to the user as a generic
-      // "Couldn't validate this file" error.
-      const res = await apiClient.post<ImportBatch>("/projects/import/dry-run", form);
+      // apiClient defaults to "Content-Type: application/json" for every
+      // request; omitting an explicit override here still leaves that
+      // default in place, so the multipart boundary never gets set and
+      // multer sees no file at all — surfaced to the user as a generic
+      // "Couldn't validate this file" error. postForm() is axios's built-in
+      // escape hatch: it drops the JSON default and lets the browser
+      // generate the correct multipart Content-Type + boundary.
+      const res = await apiClient.postForm<ImportBatch>("/projects/import/dry-run", form);
       return res.data;
     },
   });

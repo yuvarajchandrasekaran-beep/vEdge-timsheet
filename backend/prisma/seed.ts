@@ -409,6 +409,11 @@ async function main() {
   // ERP-01 demonstrates multiple project admins: Shibani co-administers
   // alongside Ramesh.
   await assign(shibani.id, erp.project.id, "Project Admin");
+  // Timesheet entry requires a real ProjectMember row (see
+  // timesheetValidation.ts's NOT_ASSIGNED check) — without this, a Super
+  // Admin has no project to log time against at all and can never submit a
+  // timesheet, which reads as "can't submit" rather than the real cause.
+  await assign(bhaskar.id, erp.project.id);
 
   // Individual users spread across both the original and the new client engagements.
   await assign(ramakrishna.id, erp.project.id);

@@ -100,7 +100,16 @@ export default function TimesheetDayPage() {
     saveDraft.mutate(
       { weekStart, entries, weekNotes: timesheet?.weekNotes },
       {
-        onSuccess: () => setSaveStatus("saved"),
+        onSuccess: (data) => {
+          setSaveStatus("saved");
+          // A line can type-check but still get rejected server-side (no
+          // note on an over-8h entry, outside a project's window, over an
+          // hour cap) — without this, it just silently reverted on the next
+          // reload with no indication why.
+          if (data.rejectedEntryMessages?.length) {
+            showToast(`Some entries weren't saved: ${data.rejectedEntryMessages.join(" ")}`, "error");
+          }
+        },
         onError: () => setSaveStatus("error"),
       }
     );

@@ -329,6 +329,42 @@ router.get(
     });
 
     const TRACKED_FIELDS = ["name", "status", "jobTitle", "roleId", "departmentId", "managerId"] as const;
+    const FIELD_LABELS: Record<(typeof TRACKED_FIELDS)[number], string> = {
+      name: "Name",
+      status: "Status",
+      jobTitle: "Job title",
+      roleId: "Role",
+      departmentId: "Department",
+      managerId: "Reporting manager",
+    };
+
+    // roleId/departmentId/managerId are foreign keys — showing the raw
+    // number ("1 to 4") is meaningless to a reader. Resolve each to its
+    // real name before returning, same as the rest of the UI would show it.
+    const [roles, departments, users] = await Promise.all([
+      prisma.role.findMany(),
+      prisma.department.findMany(),
+      prisma.user.findMany({ select: { id: true, name: true } }),
+    ]);
+    const roleNameById = new Map(roles.map((r) => [r.id, r.name]));
+    const departmentNameById = new Map(departments.map((d) => [d.id, d.name]));
+    const userNameById = new Map(users.map((u) => [u.id, u.name]));
+    const RESOLVERS: Partial<Record<(typeof TRACKED_FIELDS)[number], Map<number, string>>> = {
+      roleId: roleNameById,
+      departmentId: departmentNameById,
+      managerId: userNameById,
+    };
+
+    function resolve(field: (typeof TRACKED_FIELDS)[number], value: unknown): string {
+      if (value === null || value === undefined) return "—";
+      const resolver = RESOLVERS[field];
+      if (resolver) {
+        const resolved = resolver.get(Number(value));
+        if (resolved) return resolved;
+      }
+      return String(value);
+    }
+
     const entries: { id: string; field: string; oldValue: string; newValue: string; changedBy: string; changedAt: string }[] = [];
 
     for (const log of logs) {
@@ -339,9 +375,9 @@ router.get(
         if (before[field] !== after[field] && before[field] !== undefined) {
           entries.push({
             id: `${log.id}-${field}`,
-            field,
-            oldValue: String(before[field] ?? "—"),
-            newValue: String(after[field] ?? "—"),
+            field: FIELD_LABELS[field],
+            oldValue: resolve(field, before[field]),
+            newValue: resolve(field, after[field]),
             changedBy: log.actor?.name ?? "System",
             changedAt: log.createdAt.toISOString(),
           });

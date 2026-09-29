@@ -188,6 +188,13 @@ export default function TimesheetPeriodPage({ kind }: { kind: PeriodKind }) {
       .mutateAsync({ weekStart, entries, weekNotes: notes })
       .then((data) => {
         setSaveStatus("saved");
+        // A cell can type-check but still get rejected server-side (no note
+        // on an over-8h entry, outside a project's window, over an hour
+        // cap) — without this, it just silently reverted on the next
+        // reload with no indication why.
+        if (data.rejectedEntryMessages?.length) {
+          showToast(`Some entries weren't saved: ${data.rejectedEntryMessages.join(" ")}`, "error");
+        }
         return data;
       })
       .catch((err) => {

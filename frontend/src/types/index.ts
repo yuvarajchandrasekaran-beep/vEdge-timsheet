@@ -162,6 +162,11 @@ export interface Timesheet {
   submittedAt?: string | null;
   approvals?: Approval[];
   updatedAt?: string;
+  // Only present on the save-draft response — cells that were typed but
+  // rejected server-side (no note on an over-8h entry, outside a project's
+  // active window, over an hour cap, etc.) and so were never persisted.
+  rejectedEntries?: string[];
+  rejectedEntryMessages?: string[];
 }
 
 // Single-level approval model: every Approval row is a Project Admin (or

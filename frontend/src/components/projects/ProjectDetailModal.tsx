@@ -373,15 +373,63 @@ export function ProjectDetailModal({
                           <p className="text-xs text-gray-500">{m.roleOnProject}</p>
                         </div>
                       </div>
-                      {canManage && (
-                        <button
-                          onClick={() => removeMemberSafely(m.userId, m.roleOnProject)}
-                          className="rounded-lg p-1.5 text-gray-300 hover:bg-rose-50 hover:text-status-danger"
-                          aria-label="Remove member"
-                        >
-                          <IconTrash size={15} />
-                        </button>
-                      )}
+                      <div className="flex items-center gap-4">
+                        {canManage && (
+                          <>
+                            <label className="flex items-center gap-1.5 text-xs text-gray-500">
+                              Max hrs/day
+                              <input
+                                type="number"
+                                min={0}
+                                step={0.5}
+                                defaultValue={m.maxHoursPerDay ?? ""}
+                                placeholder="—"
+                                className="input w-16 py-1 text-xs"
+                                onBlur={(e) => {
+                                  const value = e.target.value === "" ? undefined : Number(e.target.value);
+                                  addMember.mutate({
+                                    projectId: project.id,
+                                    userId: m.userId,
+                                    roleOnProject: m.roleOnProject,
+                                    maxHoursPerDay: value,
+                                    maxHoursPerWeek: m.maxHoursPerWeek ?? undefined,
+                                  });
+                                }}
+                              />
+                            </label>
+                            <label className="flex items-center gap-1.5 text-xs text-gray-500">
+                              Max hrs/week
+                              <input
+                                type="number"
+                                min={0}
+                                step={0.5}
+                                defaultValue={m.maxHoursPerWeek ?? ""}
+                                placeholder="—"
+                                className="input w-16 py-1 text-xs"
+                                onBlur={(e) => {
+                                  const value = e.target.value === "" ? undefined : Number(e.target.value);
+                                  addMember.mutate({
+                                    projectId: project.id,
+                                    userId: m.userId,
+                                    roleOnProject: m.roleOnProject,
+                                    maxHoursPerDay: m.maxHoursPerDay ?? undefined,
+                                    maxHoursPerWeek: value,
+                                  });
+                                }}
+                              />
+                            </label>
+                          </>
+                        )}
+                        {canManage && (
+                          <button
+                            onClick={() => removeMemberSafely(m.userId, m.roleOnProject)}
+                            className="rounded-lg p-1.5 text-gray-300 hover:bg-rose-50 hover:text-status-danger"
+                            aria-label="Remove member"
+                          >
+                            <IconTrash size={15} />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>

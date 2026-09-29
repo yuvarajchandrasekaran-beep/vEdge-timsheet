@@ -15,7 +15,19 @@ const BILLING_OPTIONS: { value: BillingType; label: string }[] = (
 
 const EMPTY_TASK: CreateProjectTaskInput = { name: "", billable: true, estimatedHours: undefined };
 
-export function NewProjectModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function NewProjectModal({
+  open,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  // The list this modal sits on top of is sorted alphabetically and
+  // paginated — a newly created project can easily land on a page the user
+  // never navigates to, reading as "it said Created but the project doesn't
+  // exist." Lets the parent jump straight to it (e.g. by searching its name).
+  onCreated?: (project: { name: string; code: string }) => void;
+}) {
   // This modal is always mounted (just hidden) by its parent, so its
   // queries would otherwise fire on every visit to the Projects page —
   // including for roles that can never open it (GET /clients and /users
@@ -76,8 +88,9 @@ export function NewProjectModal({ open, onClose }: { open: boolean; onClose: () 
         tasks: cleanTasks,
       },
       {
-        onSuccess: () => {
+        onSuccess: (created) => {
           showToast(`Project "${form.name}" created.`, "success");
+          onCreated?.({ name: created.name, code: created.code });
           handleClose();
         },
       }

@@ -108,6 +108,13 @@ export default function TimesheetWeeklyPage() {
       .then((data) => {
         setSaveStatus("saved");
         setLastSavedAt(new Date());
+        // A cell can type-check but still get rejected server-side (no note
+        // on an over-8h entry, outside a project's window, over an hour
+        // cap) — without this, it just silently reverted on the next
+        // reload with no indication why.
+        if (data.rejectedEntryMessages?.length) {
+          showToast(`Some entries weren't saved: ${data.rejectedEntryMessages.join(" ")}`, "error");
+        }
         return data;
       })
       .catch((err) => {

@@ -89,7 +89,14 @@ export default function ProjectsPage() {
         {(canViewClients ? (["projects", "clients"] as Tab[]) : (["projects"] as Tab[])).map((t) => (
           <button
             key={t}
-            onClick={() => setTab(t)}
+            onClick={() => {
+              setTab(t);
+              // The search box is labeled per-tab ("Search projects…" vs
+              // "Search clients…") — carrying a typed value across tabs
+              // silently re-filters a list the user never searched.
+              setSearch("");
+              setPage(1);
+            }}
             className={`flex-1 rounded-lg px-4 py-1.5 text-sm font-medium transition-colors sm:flex-none ${
               tab === t ? "bg-white text-gray-900 shadow-soft" : "text-gray-500 hover:text-gray-700"
             }`}
@@ -290,7 +297,20 @@ export default function ProjectsPage() {
         )}
       </div>
 
-      <NewProjectModal open={newModalOpen} onClose={() => setNewModalOpen(false)} />
+      <NewProjectModal
+        open={newModalOpen}
+        onClose={() => setNewModalOpen(false)}
+        onCreated={(project) => {
+          // The list is sorted alphabetically and paginated (8/page) — a
+          // freshly created project can land on a page far from page 1, and
+          // any active status/client filter can hide it outright. Clear
+          // those and search for it by name so it's guaranteed visible.
+          setStatusFilter("");
+          setClientFilter("");
+          setSearch(project.name);
+          setPage(1);
+        }}
+      />
       <NewClientModal open={newClientModalOpen} onClose={() => setNewClientModalOpen(false)} />
       <ProjectDetailModal projectId={detail?.id ?? null} initialTab={detail?.tab} onClose={() => setDetail(null)} />
     </div>

@@ -59,8 +59,13 @@ router.post(
   requireRole(ROLES.HR_ADMIN, ROLES.SUPER_ADMIN),
   asyncHandler(async (req, res) => {
     const body = holidaySchema.parse(req.body);
+    const date = new Date(body.date);
+    const existing = await prisma.holiday.findFirst({
+      where: { date, name: body.name, departmentId: body.departmentId ?? null },
+    });
+    if (existing) throw ApiError.conflict(`"${body.name}" is already on the calendar for this date.`);
     const holiday = await prisma.holiday.create({
-      data: { name: body.name, date: new Date(body.date), departmentId: body.departmentId ?? null },
+      data: { name: body.name, date, departmentId: body.departmentId ?? null },
     });
     await writeAuditLog({ actorId: req.user!.id, impersonatedById: req.user!.impersonatedBy ?? null, entityType: "Holiday", entityId: holiday.id, action: "Create", after: holiday });
     res.status(201).json(serialize(holiday));

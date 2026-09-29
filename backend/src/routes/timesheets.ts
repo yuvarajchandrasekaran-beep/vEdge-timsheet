@@ -190,9 +190,8 @@ router.put(
     }
 
     const issues = await validateEntries(req.user!.id, body.entries as EntryInput[]);
-    const blockingKeys = new Set(
-      issues.filter((i) => i.severity === "blocking").map((i) => `${i.projectTaskId}:${i.entryDate}`)
-    );
+    const blockingIssues = issues.filter((i) => i.severity === "blocking");
+    const blockingKeys = new Set(blockingIssues.map((i) => `${i.projectTaskId}:${i.entryDate}`));
 
     const acceptedEntries = body.entries.filter((e) => !blockingKeys.has(`${e.projectTaskId}:${e.entryDate}`));
 
@@ -221,7 +220,16 @@ router.put(
     }
 
     const result = await serializeTimesheet(timesheet.id);
-    res.json({ ...result, rejectedEntries: [...blockingKeys], savedAt: new Date().toISOString() });
+    res.json({
+      ...result,
+      rejectedEntries: [...blockingKeys],
+      // Human-readable reasons a caller can show the user — without this,
+      // an over-8h cell saved with no note (or one outside a project's
+      // window, over a member's hour cap, etc.) just silently vanished on
+      // the next reload with no indication why.
+      rejectedEntryMessages: [...new Set(blockingIssues.map((i) => i.message))],
+      savedAt: new Date().toISOString(),
+    });
   })
 );
 

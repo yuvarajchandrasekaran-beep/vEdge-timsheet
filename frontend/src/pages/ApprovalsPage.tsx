@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useApprovalsPending, useApproveTimesheet, useBulkApprove, useRejectTimesheet } from "../hooks/useApprovals";
+import { useApprovalsPending, useApproveTimesheet, useBulkApprove, useBulkReject, useRejectTimesheet } from "../hooks/useApprovals";
 import { useDepartments } from "../hooks/useDepartments";
 import { usePageHeader } from "../hooks/usePageHeader";
 import { Avatar } from "../components/common/Avatar";
@@ -34,6 +34,10 @@ export default function ApprovalsPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [rejectTarget, setRejectTarget] = useState<{ timesheetId: string; userName: string } | null>(null);
   const [rejectComment, setRejectComment] = useState("");
+  // The reject modal below doubles as the bulk-reject modal — this is the
+  // only thing that distinguishes which mode it's in (rejectTarget stays
+  // null for a bulk reject, since there's no single timesheet/user to name).
+  const [bulkRejectOpen, setBulkRejectOpen] = useState(false);
 
   const { data: departments } = useDepartments();
   const query = useApprovalsPending({
@@ -47,6 +51,7 @@ export default function ApprovalsPage() {
   const approveMutation = useApproveTimesheet();
   const rejectMutation = useRejectTimesheet();
   const bulkApprove = useBulkApprove();
+  const bulkReject = useBulkReject();
 
   function resetFilters() {
     setSearch("");
@@ -103,28 +108,38 @@ export default function ApprovalsPage() {
           </div>
 
           {tab === "PENDING" && selected.size > 0 && (
-            <button
-              onClick={() =>
-                bulkApprove.mutate(Array.from(selected), {
-                  onSuccess: (data: { results: { ok: boolean }[] }) => {
-                    const okCount = data.results.filter((r) => r.ok).length;
-                    showToast(
-                      okCount === data.results.length
-                        ? `Approved ${okCount} timesheet${okCount === 1 ? "" : "s"}.`
-                        : `Approved ${okCount} of ${data.results.length} — some failed, see the list.`,
-                      okCount === data.results.length ? "success" : "error"
-                    );
-                    setSelected(new Set());
-                  },
-                  onError: (err) => showToast(getApiErrorMessage(err, "Bulk approve failed."), "error"),
-                })
-              }
-              disabled={bulkApprove.isPending}
-              className="flex items-center gap-2 rounded-xl bg-status-success px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
-            >
-              <IconCheckSquare size={16} />
-              Bulk approve ({selected.size})
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() =>
+                  bulkApprove.mutate(Array.from(selected), {
+                    onSuccess: (data: { results: { ok: boolean }[] }) => {
+                      const okCount = data.results.filter((r) => r.ok).length;
+                      showToast(
+                        okCount === data.results.length
+                          ? `Approved ${okCount} timesheet${okCount === 1 ? "" : "s"}.`
+                          : `Approved ${okCount} of ${data.results.length} — some failed, see the list.`,
+                        okCount === data.results.length ? "success" : "error"
+                      );
+                      setSelected(new Set());
+                    },
+                    onError: (err) => showToast(getApiErrorMessage(err, "Bulk approve failed."), "error"),
+                  })
+                }
+                disabled={bulkApprove.isPending}
+                className="flex items-center gap-2 rounded-xl bg-status-success px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+              >
+                <IconCheckSquare size={16} />
+                Bulk approve ({selected.size})
+              </button>
+              <button
+                onClick={() => setBulkRejectOpen(true)}
+                disabled={bulkReject.isPending}
+                className="flex items-center gap-2 rounded-xl border border-status-danger px-4 py-2 text-sm font-semibold text-status-danger hover:bg-rose-50 disabled:opacity-60"
+              >
+                <IconX size={16} />
+                Bulk reject ({selected.size})
+              </button>
+            </div>
           )}
         </div>
 
@@ -282,17 +297,48 @@ export default function ApprovalsPage() {
       </div>
 
       <Modal
-        open={!!rejectTarget}
-        onClose={() => setRejectTarget(null)}
-        title={`Return ${rejectTarget?.userName ?? ""}'s timesheet`}
+        open={!!rejectTarget || bulkRejectOpen}
+        onClose={() => {
+          setRejectTarget(null);
+          setBulkRejectOpen(false);
+        }}
+        title={bulkRejectOpen ? `Return ${selected.size} timesheet${selected.size === 1 ? "" : "s"}` : `Return ${rejectTarget?.userName ?? ""}'s timesheet`}
         footer={
           <>
-            <button onClick={() => setRejectTarget(null)} className="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100">
+            <button
+              onClick={() => {
+                setRejectTarget(null);
+                setBulkRejectOpen(false);
+              }}
+              className="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100"
+            >
               Cancel
             </button>
             <button
               onClick={() => {
-                if (!rejectTarget || !rejectComment.trim()) return;
+                if (!rejectComment.trim()) return;
+                if (bulkRejectOpen) {
+                  bulkReject.mutate(
+                    { timesheetIds: Array.from(selected), comment: rejectComment.trim() },
+                    {
+                      onSuccess: (data: { results: { ok: boolean }[] }) => {
+                        const okCount = data.results.filter((r) => r.ok).length;
+                        showToast(
+                          okCount === data.results.length
+                            ? `Returned ${okCount} timesheet${okCount === 1 ? "" : "s"} for correction.`
+                            : `Returned ${okCount} of ${data.results.length} — some failed, see the list.`,
+                          okCount === data.results.length ? "success" : "error"
+                        );
+                        setSelected(new Set());
+                        setBulkRejectOpen(false);
+                        setRejectComment("");
+                      },
+                      onError: (err) => showToast(getApiErrorMessage(err, "Bulk reject failed."), "error"),
+                    }
+                  );
+                  return;
+                }
+                if (!rejectTarget) return;
                 rejectMutation.mutate(
                   { timesheetId: rejectTarget.timesheetId, comment: rejectComment.trim() },
                   {
@@ -305,7 +351,7 @@ export default function ApprovalsPage() {
                   }
                 );
               }}
-              disabled={!rejectComment.trim() || rejectMutation.isPending}
+              disabled={!rejectComment.trim() || rejectMutation.isPending || bulkReject.isPending}
               className="rounded-lg bg-status-danger px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
             >
               Return with comment
@@ -313,7 +359,9 @@ export default function ApprovalsPage() {
           </>
         }
       >
-        <label className="mb-1.5 block text-sm font-medium text-gray-700">Reason for returning (required)</label>
+        <label className="mb-1.5 block text-sm font-medium text-gray-700">
+          {bulkRejectOpen ? "Reason for returning all selected (required, applied to each)" : "Reason for returning (required)"}
+        </label>
         <textarea
           value={rejectComment}
           onChange={(e) => setRejectComment(e.target.value)}

@@ -401,17 +401,24 @@ function ScheduleReportModal({ open, onClose, reportKey }: { open: boolean; onCl
   const schedule = useScheduleReport();
   const [done, setDone] = useState(false);
 
+  // Shared by the Modal's own X/backdrop/Escape close AND the footer's
+  // "Close" button below — the footer button used to call the raw `onClose`
+  // prop directly, which never reset `done`, so reopening the modal (it's
+  // always mounted, just hidden) showed the same stale confirmation screen
+  // instead of a fresh form until a full page reload remounted it.
+  function handleClose() {
+    onClose();
+    setDone(false);
+  }
+
   return (
     <Modal
       open={open}
-      onClose={() => {
-        onClose();
-        setDone(false);
-      }}
+      onClose={handleClose}
       title="Schedule report"
       footer={
         done ? (
-          <button onClick={onClose} className="btn-primary">
+          <button onClick={handleClose} className="btn-primary">
             Close
           </button>
         ) : (
