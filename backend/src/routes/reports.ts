@@ -101,12 +101,18 @@ router.get(
       return res.json({ reportKey, generatedAt: new Date().toISOString(), ...audit });
     }
 
-    // The on-screen table/charts always render project-utilization-shaped
-    // data regardless of reportKey (see services/reports.ts docstring) — the
-    // distinct per-report-type columns are what the export endpoint below
-    // produces instead.
-    const overview = await getUtilizationOverview(filters);
-    res.json({ reportKey, generatedAt: new Date().toISOString(), ...overview });
+    // Project Utilization is the one report with dedicated donut/trend
+    // charts, so it keeps its own shaped response. Every other report key
+    // now returns its real, export-matching rows directly instead of being
+    // forced into the Project Utilization shape (which is what made the
+    // on-screen preview disagree with the PDF/Excel/CSV export).
+    if (reportKey === "project-utilization") {
+      const overview = await getUtilizationOverview(filters);
+      return res.json({ reportKey, generatedAt: new Date().toISOString(), ...overview });
+    }
+
+    const rows = await getReportData(reportKey, filters);
+    res.json({ reportKey, generatedAt: new Date().toISOString(), rows });
   })
 );
 

@@ -238,12 +238,20 @@ overwriting history").
 | startDate / endDate | DateTime | |
 | active | Boolean | |
 
-**Extension point:** this table is written by `POST /approvals/{id}/delegate`
-but is **not yet read** by the approval-authorization checks in
-`services/approvalRouting.ts` — a nominated proxy is recorded but cannot
-actually act as the delegator yet. Wiring `doApprove`/`doReject` in
-`routes/approvals.ts` to also accept an active delegate is the natural next
-increment (spec 4.4.1).
+Managed via `routes/delegations.ts` (`POST/GET /delegations`, `DELETE
+/delegations/{id}` — soft-deletes by setting `active=false`, so revoked
+delegations stay in the history). A delegate must already hold the Project
+Admin or Super Admin role, since that's what `doApprove`/`doReject` require
+regardless of `approverIds` membership.
+
+`services/approvalRouting.ts#resolveApprover` reads this table and folds in
+anyone with an **active** delegation (`active=true`, today between
+`startDate` and `endDate`) from one of a timesheet's real approvers — added
+to `approverIds`, not swapped in, so the original approver can still act too.
+That same `approverIds` set is what both the Pending-tab query and
+`doApprove`/`doReject`'s authorization check use, so a delegate automatically
+sees delegated timesheets in their own Approvals inbox and can act on them —
+no separate "acting on someone else's behalf" UI or impersonation needed.
 
 ### `notifications`
 | Column | Type | Notes |
@@ -504,22 +512,18 @@ row arrays, filtered by `dateFrom/dateTo/clientId/projectId/departmentId/
 userId/status`. `routes/reports.ts` serves the same data as JSON
 (`GET /reports/{key}`) or as a file (`GET /reports/{key}/export?format=`):
 
-> **Known limitation:** the Reports screen's on-screen donut/trend chart and
-> table always render project-utilization-shaped data
-> (`getUtilizationOverview` in `services/reports.ts`) regardless of which
-> report type is selected in the dropdown — a constraint of the shipped
-> frontend, whose `ReportResponse` type and table columns are hardcoded to
-> `ProjectUtilizationRow` fields (`projectName`, `clientName`, `budgetHours`,
-> `loggedHours`, `utilizationPct`) for every report key. The **export**
-> endpoint is not affected by this — `GET /reports/{key}/export` always
-> produces the real, report-specific columns (e.g. `timesheet-summary`
-> exports employee/project/date/hours rows, `audit-trail` exports actor/
-> action/entity rows), so PDF/Excel/CSV output is correct per report type
-> even though the in-browser preview isn't. Fixing the preview requires
-> widening the frontend's `ReportResponse` type and `ReportsPage.tsx`'s table
-> to render per-report-key columns instead of one fixed shape. `client-audit`
-> (below) is the one exception — it was built with its own dedicated
-> on-screen shape from the start rather than being fit into this constraint.
+`GET /reports/{key}` returns project-utilization-shaped data
+(`getUtilizationOverview`) only for `reportKey === "project-utilization"`,
+since that's the one report with dedicated donut/trend charts. Every other
+report key returns its real rows directly from `getReportData` — the same
+rows the export produces — and `ReportsPage.tsx` renders them with a
+`GenericReportTable` whose columns are derived from the row data itself
+(`humanizeHeader`/`formatReportCell` in `frontend/src/utils/format.ts`,
+mirroring `services/pdfTable.ts`'s header overrides so the labels match
+between the on-screen table and the PDF/Excel/CSV export exactly).
+`client-audit` (below) is the one exception — it has its own dedicated
+on-screen shape (`getClientAuditReport`) rather than going through either of
+these paths.
 
 **`client-audit`** — a client-submittable "proof of hours" report, added on
 request rather than from the original spec. It requires `clientId` (both
@@ -527,9 +531,9 @@ request rather than from the original spec. It requires `clientId` (both
 is no "all clients" mode, unlike every other report key). Two different
 functions back it, deliberately not sharing one row shape:
 - `getClientAuditReport` (`services/reports.ts`) — powers the on-screen
-  preview via `GET /reports/client-audit`, which branches away from
-  `getUtilizationOverview` in `routes/reports.ts` before the "known
-  limitation" code path above is reached. Returns a real hierarchical
+  preview via `GET /reports/client-audit`, which branches away from the
+  logic above (both the chart-shaped and generic-table paths) before either
+  is reached. Returns a real hierarchical
   structure (`ClientAuditReport` in `frontend/src/types/index.ts`): client →
   projects → resources, with hours and entry counts aggregated per resource
   per project. Rendered by `ClientAuditSection` in `ReportsPage.tsx`.
@@ -609,7 +613,7 @@ be normalized by hand in its route if it deliberately doesn't.
 | Reports (6 standard reports), CSV/XLSX/PDF export | Real |
 | In-app notification center (read/unread) | Real |
 | Reminder/escalation background sweep (writes real in-app notifications) | Real (email delivery is a console-log placeholder) |
-| Delegation (create/list a proxy record) | Partial — not consulted by approval authorization yet |
+| Delegation (nominate/list/revoke a temporary approval proxy) | Real |
 | Per-project/department approval chain override | Partial — table + settings API exist, routing doesn't read them yet |
 | Notification cadence rules driving the scheduler | Partial — rules are CRUD-able, scheduler uses hardcoded cadence |
 | SSO (SAML/OAuth) | Not implemented — pluggable by design, no provider chosen |

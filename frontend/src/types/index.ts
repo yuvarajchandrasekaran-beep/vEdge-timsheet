@@ -287,10 +287,16 @@ export interface ReportTrendPoint {
 export interface ReportResponse {
   reportKey: ReportKey;
   generatedAt: string;
-  summary: Record<string, number | string>;
-  utilizationByProject: ProjectUtilizationRow[];
-  trend: ReportTrendPoint[];
-  rows: ProjectUtilizationRow[];
+  // Only present for reportKey === "project-utilization" — the one report
+  // with dedicated donut/trend charts.
+  summary?: Record<string, number | string>;
+  utilizationByProject?: ProjectUtilizationRow[];
+  trend?: ReportTrendPoint[];
+  // ProjectUtilizationRow[] for "project-utilization" (keeps its fixed
+  // Project/Client/Budget/Logged/Utilization columns); a generic row shape
+  // for every other report key, rendered as a dynamic table that matches
+  // the PDF/Excel/CSV export column-for-column.
+  rows: ProjectUtilizationRow[] | Record<string, unknown>[];
 }
 
 export interface ClientAuditResource {

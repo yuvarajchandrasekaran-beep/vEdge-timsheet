@@ -71,6 +71,9 @@ day, with a running total column on the right and a total row at the bottom.
   pre-fills the current period from the immediately preceding period of the
   same length — hours and the project/task list carry over, but **comments
   are always left blank** so you're not accidentally forwarding an old note.
+- **Download**: Monthly and Fortnight views have a **Download** button that
+  exports the whole grid exactly as shown — one row per project/task, one
+  column per date across every week in the period — as an Excel file.
 
 ### 1.3 Mandatory conditions
 
@@ -152,8 +155,14 @@ waiting.
   their timesheet reopens for edits.
 - **Bulk approve / bulk reject**: for straightforward weeks that don't need
   line-by-line review, select multiple rows and act on them together.
-- **Delegate**: heading out on leave? Nominate a temporary proxy to cover
-  your queue without permanently handing off your approval responsibilities.
+- **Delegate**: heading out on leave? Click **Delegate my approvals** (top
+  right of the Approvals screen) to nominate a proxy — anyone who's a Super
+  Admin, or who already administers at least one project — for a date range.
+  While it's active, every timesheet you'd normally approve also appears in
+  the proxy's own Pending tab automatically; they don't need to do anything
+  else to see or act on it, and you can still act on it yourself too if
+  you're reachable after all. Revoke it early from the same panel, which
+  keeps a record of past delegations rather than deleting them outright.
 
 ### 2.2 SLA and escalation
 

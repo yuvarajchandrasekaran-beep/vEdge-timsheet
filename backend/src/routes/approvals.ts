@@ -3,11 +3,11 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { asyncHandler } from "../utils/asyncHandler";
 import { ApiError } from "../utils/errors";
-import { requireAuth, requireRole } from "../middleware/auth";
+import { requireAuth } from "../middleware/auth";
 import { ROLES, TIMESHEET_STATUS } from "../constants/enums";
 import { writeAuditLog } from "../utils/audit";
 import { notify } from "../services/notify";
-import { resolveApprover } from "../services/approvalRouting";
+import { isProjectAdminAnywhere, resolveApprover } from "../services/approvalRouting";
 import { paginationParams, paginated } from "../utils/pagination";
 
 const router = Router();
@@ -55,8 +55,12 @@ const TIMESHEET_INCLUDE = { user: { include: { role: true, department: true } },
 router.get(
   "/pending",
   requireAuth,
-  requireRole(ROLES.PROJECT_ADMIN, ROLES.SUPER_ADMIN),
   asyncHandler(async (req, res) => {
+    // No role gate here beyond requireAuth: a project's admin list is
+    // assignable to anyone regardless of their global role (see
+    // isProjectAdminAnywhere's docstring), so the real authorization is
+    // per-timesheet below — an Individual User with no such membership
+    // anywhere simply never matches approverIds and sees an empty queue.
     const status = String(req.query.status ?? "PENDING").toUpperCase();
     const { page, pageSize, skip, take } = paginationParams(req);
 
@@ -70,11 +74,10 @@ router.get(
       });
       for (const t of submitted) {
         const { approverIds } = await resolveApprover(t.id);
-        // Mirror doApprove/doReject's authorization: only SUPER_ADMIN or an
-        // actual PROJECT_ADMIN-role user who is one of the resolved
-        // approvers can act — being listed here without being able to act
-        // on it would be a confusing dead end.
-        if (req.user!.role === ROLES.SUPER_ADMIN || (req.user!.role === ROLES.PROJECT_ADMIN && approverIds.includes(req.user!.id))) {
+        // Mirrors doApprove/doReject's authorization exactly: Super Admin,
+        // or anyone resolveApprover actually named (a real per-project
+        // admin, or their active delegate) regardless of global role.
+        if (req.user!.role === ROLES.SUPER_ADMIN || approverIds.includes(req.user!.id)) {
           rows.push(serializeQueueRow(t));
         }
       }
@@ -115,7 +118,11 @@ async function doApprove(timesheetId: number, actor: { id: number; role: string 
   }
 
   const { approverIds } = await resolveApprover(timesheetId);
-  if (actor.role !== ROLES.SUPER_ADMIN && (actor.role !== ROLES.PROJECT_ADMIN || !approverIds.includes(actor.id))) {
+  // approverIds already names only real per-project admins (and their
+  // active delegates) regardless of the actor's global role — see
+  // isProjectAdminAnywhere's docstring for why checking global role here
+  // too would incorrectly block a legitimate co-administrator.
+  if (actor.role !== ROLES.SUPER_ADMIN && !approverIds.includes(actor.id)) {
     throw ApiError.forbidden("You are not the approver for this timesheet");
   }
   await prisma.approval.create({ data: { timesheetId, level: 1, approverId: actor.id, action: "APPROVED", comment } });
@@ -132,7 +139,7 @@ async function doReject(timesheetId: number, actor: { id: number; role: string }
   }
 
   const { approverIds } = await resolveApprover(timesheetId);
-  if (actor.role !== ROLES.SUPER_ADMIN && (actor.role !== ROLES.PROJECT_ADMIN || !approverIds.includes(actor.id))) {
+  if (actor.role !== ROLES.SUPER_ADMIN && !approverIds.includes(actor.id)) {
     throw ApiError.forbidden("You are not the approver for this timesheet");
   }
 
@@ -156,7 +163,6 @@ const rejectSchema = z.object({ comment: z.string().min(1, "A comment is require
 router.post(
   "/:timesheetId/approve",
   requireAuth,
-  requireRole(ROLES.PROJECT_ADMIN, ROLES.SUPER_ADMIN),
   asyncHandler(async (req, res) => {
     const { comment } = commentSchema.parse(req.body ?? {});
     const updated = await doApprove(Number(req.params.timesheetId), req.user!, comment);
@@ -176,7 +182,6 @@ router.post(
 router.post(
   "/:timesheetId/reject",
   requireAuth,
-  requireRole(ROLES.PROJECT_ADMIN, ROLES.SUPER_ADMIN),
   asyncHandler(async (req, res) => {
     const { comment } = rejectSchema.parse(req.body);
     const updated = await doReject(Number(req.params.timesheetId), req.user!, comment);
@@ -196,7 +201,6 @@ router.post(
 router.post(
   "/bulk-approve",
   requireAuth,
-  requireRole(ROLES.PROJECT_ADMIN, ROLES.SUPER_ADMIN),
   asyncHandler(async (req, res) => {
     const { timesheetIds } = z.object({ timesheetIds: z.array(z.coerce.number()) }).parse(req.body);
     const results: { timesheetId: number; ok: boolean; error?: string }[] = [];
@@ -224,7 +228,6 @@ router.post(
 router.post(
   "/bulk-reject",
   requireAuth,
-  requireRole(ROLES.PROJECT_ADMIN, ROLES.SUPER_ADMIN),
   asyncHandler(async (req, res) => {
     const { timesheetIds, comment } = z
       .object({ timesheetIds: z.array(z.coerce.number()), comment: z.string().min(1, "A comment is required to reject") })
@@ -243,28 +246,9 @@ router.post(
   })
 );
 
-/**
- * @swagger
- * /approvals/{timesheetId}/delegate:
- *   post:
- *     summary: Nominate a temporary proxy approver for a date range
- *     tags: [Approvals]
- *     security: [{ bearerAuth: [] }]
- */
-router.post(
-  "/:timesheetId/delegate",
-  requireAuth,
-  requireRole(ROLES.PROJECT_ADMIN, ROLES.SUPER_ADMIN),
-  asyncHandler(async (req, res) => {
-    const body = z.object({ toUserId: z.coerce.number(), from: z.string(), to: z.string() }).parse(req.body);
-    const timesheet = await prisma.timesheet.findUnique({ where: { id: Number(req.params.timesheetId) } });
-    if (!timesheet) throw ApiError.notFound("Timesheet not found");
-    const delegation = await prisma.delegation.create({
-      data: { fromUserId: req.user!.id, toUserId: body.toUserId, startDate: new Date(body.from), endDate: new Date(body.to) },
-    });
-    await writeAuditLog({ actorId: req.user!.id, impersonatedById: req.user!.impersonatedBy ?? null, entityType: "Delegation", entityId: delegation.id, action: "Create", after: delegation });
-    res.status(201).json(delegation);
-  })
-);
+// Nominating/listing/revoking a proxy now lives at /delegations (see
+// routes/delegations.ts) — it's a general "stand in for me on this date
+// range" action, not tied to any one timesheet the way this endpoint used
+// to be (it took a timesheetId but never actually used it).
 
 export default router;

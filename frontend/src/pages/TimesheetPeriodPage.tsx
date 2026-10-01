@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNod
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import clsx from "clsx";
 import { usePageHeader } from "../hooks/usePageHeader";
-import { useCopyPeriod, useMyTimesheetsForPeriod, useSaveTimesheetDraft, useSubmitBatch } from "../hooks/useTimesheets";
+import { useCopyPeriod, useExportPeriod, useMyTimesheetsForPeriod, useSaveTimesheetDraft, useSubmitBatch } from "../hooks/useTimesheets";
 import { useProjects } from "../hooks/useProjects";
 import { useKeyedDebouncedCallback } from "../hooks/useKeyedDebouncedCallback";
 import { useToast } from "../components/common/Toast";
@@ -34,7 +34,7 @@ import { CompactViewToggle } from "../components/timesheet/CompactViewToggle";
 import { useShowWeekends } from "../hooks/useShowWeekends";
 import { useHolidayMap } from "../hooks/useHolidays";
 import { LoadingBlock } from "../components/common/Spinner";
-import { IconChevronLeft, IconChevronRight, IconCopy, IconTrash } from "../components/common/icons";
+import { IconChevronLeft, IconChevronRight, IconCopy, IconDownload, IconTrash } from "../components/common/icons";
 
 const AUTOSAVE_DELAY = 900;
 const EDITABLE_STATUSES = ["DRAFT", "RECALLED", "REJECTED"];
@@ -94,6 +94,7 @@ export default function TimesheetPeriodPage({ kind }: { kind: PeriodKind }) {
   const summaryQueries = useMyTimesheetsForPeriod(weekStarts);
   const saveDraft = useSaveTimesheetDraft();
   const copyPeriod = useCopyPeriod();
+  const exportPeriod = useExportPeriod();
   const submitBatch = useSubmitBatch();
 
   const [rows, setRows] = useState<GridRow[]>([]);
@@ -451,6 +452,15 @@ export default function TimesheetPeriodPage({ kind }: { kind: PeriodKind }) {
           >
             <IconCopy size={15} />
             Copy previous {kind}
+          </button>
+          <button
+            onClick={() => exportPeriod.mutate({ weekStarts, format: "xlsx" })}
+            disabled={exportPeriod.isPending}
+            title={`Download this ${kind}'s grid as an Excel file`}
+            className="flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-60"
+          >
+            <IconDownload size={15} />
+            Download
           </button>
           <button
             onClick={() => setSubmitModalOpen(true)}

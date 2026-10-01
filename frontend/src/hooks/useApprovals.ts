@@ -75,23 +75,49 @@ export function useBulkReject() {
   });
 }
 
-export function useDelegateApproval() {
+export interface Delegation {
+  id: string;
+  fromUserId: string;
+  fromUserName?: string;
+  toUserId: string;
+  toUserName?: string;
+  startDate: string;
+  endDate: string;
+  active: boolean;
+}
+
+/** The current user's own nominated proxies (as the delegator) — see
+ * backend/src/routes/delegations.ts. A delegate automatically sees
+ * delegated timesheets in their own Approvals inbox while active; there's
+ * no separate "acting as" view to fetch. */
+export function useDelegations(enabled = true) {
+  return useQuery({
+    queryKey: ["delegations"],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: Delegation[] }>("/delegations");
+      return res.data.data;
+    },
+    enabled,
+  });
+}
+
+export function useCreateDelegation() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({
-      timesheetId,
-      toUserId,
-      from,
-      to,
-    }: {
-      timesheetId: string;
-      toUserId: string;
-      from: string;
-      to: string;
-    }) => {
-      const res = await apiClient.post(`/approvals/${timesheetId}/delegate`, { toUserId, from, to });
+    mutationFn: async (body: { toUserId: string; startDate: string; endDate: string }) => {
+      const res = await apiClient.post<Delegation>("/delegations", body);
       return res.data;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["approvals"] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["delegations"] }),
+  });
+}
+
+export function useRevokeDelegation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await apiClient.delete(`/delegations/${id}`);
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["delegations"] }),
   });
 }

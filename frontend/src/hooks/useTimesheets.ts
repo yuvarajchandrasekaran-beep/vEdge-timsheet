@@ -1,5 +1,5 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiClient } from "../api/client";
+import { apiClient, downloadBlob } from "../api/client";
 import type { Timesheet } from "../types";
 
 export function useMyTimesheet(weekStart: string) {
@@ -130,6 +130,21 @@ export function useCopyPeriod() {
       for (const t of data) {
         qc.setQueryData(["timesheets", "me", t.weekStart], t);
       }
+    },
+  });
+}
+
+/** Downloads the current Monthly/Fortnight grid (one row per project/task,
+ * one column per date) as an Excel or CSV file — mirrors exactly what's on
+ * screen, including every week in the period. */
+export function useExportPeriod() {
+  return useMutation({
+    mutationFn: async ({ weekStarts, format }: { weekStarts: string[]; format: "xlsx" | "csv" }) => {
+      const res = await apiClient.get("/timesheets/me/period-export", {
+        params: { weekStarts: weekStarts.join(","), format },
+        responseType: "blob",
+      });
+      downloadBlob(res.data, `timesheet_${weekStarts[0]}_to_${weekStarts[weekStarts.length - 1]}.${format}`);
     },
   });
 }

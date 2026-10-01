@@ -17,7 +17,7 @@ import { usePageHeader } from "../hooks/usePageHeader";
 import { useClients } from "../hooks/useProjects";
 import { useDepartments } from "../hooks/useDepartments";
 import { getApiErrorMessage } from "../api/client";
-import type { ReportFilters, ReportKey } from "../types";
+import type { ReportFilters, ReportKey, ProjectUtilizationRow } from "../types";
 import { ROLE_LABELS } from "../types";
 import { LoadingBlock } from "../components/common/Spinner";
 import { ErrorState } from "../components/common/ErrorState";
@@ -26,7 +26,7 @@ import { ProgressBar } from "../components/common/ProgressBar";
 import { Modal } from "../components/common/Modal";
 import { Spinner } from "../components/common/Spinner";
 import { IconBarChart, IconDownload } from "../components/common/icons";
-import { formatDate } from "../utils/format";
+import { formatDate, humanizeHeader, formatReportCell } from "../utils/format";
 
 const REPORT_OPTIONS: { value: ReportKey; label: string }[] = [
   { value: "project-utilization", label: "Project Utilization" },
@@ -183,51 +183,53 @@ export default function ReportsPage() {
         <EmptyState title="No data for this report" description="Try widening your date range or clearing filters." />
       ) : (
         <>
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <div className="rounded-2xl bg-white p-5 shadow-soft ring-1 ring-gray-100">
-              <h2 className="mb-4 text-sm font-semibold text-gray-900">Utilization by Project</h2>
-              <div className="flex flex-col items-center gap-6 sm:flex-row">
-                <div className="h-52 w-52 shrink-0">
+          {reportKey === "project-utilization" && (
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <div className="rounded-2xl bg-white p-5 shadow-soft ring-1 ring-gray-100">
+                <h2 className="mb-4 text-sm font-semibold text-gray-900">Utilization by Project</h2>
+                <div className="flex flex-col items-center gap-6 sm:flex-row">
+                  <div className="h-52 w-52 shrink-0">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie data={donutData} dataKey="value" nameKey="name" innerRadius={60} outerRadius={85} paddingAngle={2} stroke="none">
+                          {donutData.map((_, i) => (
+                            <Cell key={i} fill={DONUT_PALETTE[i % DONUT_PALETTE.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(v: number) => `${v.toFixed(1)}h`} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="flex-1 space-y-2.5">
+                    {donutData.map((d, i) => (
+                      <div key={d.name} className="flex items-center justify-between text-sm">
+                        <span className="flex items-center gap-2 text-gray-600">
+                          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: DONUT_PALETTE[i % DONUT_PALETTE.length] }} />
+                          {d.name}
+                        </span>
+                        <span className="font-semibold text-gray-900">{d.value.toFixed(1)}h</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl bg-white p-5 shadow-soft ring-1 ring-gray-100">
+                <h2 className="mb-4 text-sm font-semibold text-gray-900">Utilization Trend</h2>
+                <div className="h-52 w-full">
                   <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={donutData} dataKey="value" nameKey="name" innerRadius={60} outerRadius={85} paddingAngle={2} stroke="none">
-                        {donutData.map((_, i) => (
-                          <Cell key={i} fill={DONUT_PALETTE[i % DONUT_PALETTE.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={(v: number) => `${v.toFixed(1)}h`} />
-                    </PieChart>
+                    <LineChart data={report.trend} margin={{ left: -20 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#EEF1F6" />
+                      <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
+                      <Tooltip />
+                      <Line type="monotone" dataKey="value" stroke="#1B4298" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                    </LineChart>
                   </ResponsiveContainer>
                 </div>
-                <div className="flex-1 space-y-2.5">
-                  {donutData.map((d, i) => (
-                    <div key={d.name} className="flex items-center justify-between text-sm">
-                      <span className="flex items-center gap-2 text-gray-600">
-                        <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: DONUT_PALETTE[i % DONUT_PALETTE.length] }} />
-                        {d.name}
-                      </span>
-                      <span className="font-semibold text-gray-900">{d.value.toFixed(1)}h</span>
-                    </div>
-                  ))}
-                </div>
               </div>
             </div>
-
-            <div className="rounded-2xl bg-white p-5 shadow-soft ring-1 ring-gray-100">
-              <h2 className="mb-4 text-sm font-semibold text-gray-900">Utilization Trend</h2>
-              <div className="h-52 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={report.trend} margin={{ left: -20 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#EEF1F6" />
-                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
-                    <Tooltip />
-                    <Line type="monotone" dataKey="value" stroke="#1B4298" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          </div>
+          )}
 
           <div className="rounded-2xl bg-white shadow-soft ring-1 ring-gray-100">
             <div className="flex flex-col gap-3 border-b border-gray-100 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -247,33 +249,37 @@ export default function ReportsPage() {
               </div>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px]">
-                <thead>
-                  <tr className="border-b border-gray-100 text-left text-xs font-semibold uppercase tracking-wide text-gray-400">
-                    <th className="px-4 py-3">Project</th>
-                    <th className="px-4 py-3">Client</th>
-                    <th className="px-4 py-3">Budget</th>
-                    <th className="px-4 py-3">Logged</th>
-                    <th className="px-4 py-3">Utilization</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {report.rows.map((r) => (
-                    <tr key={r.projectId} className="border-b border-gray-50 last:border-0">
-                      <td className="px-4 py-3 text-sm font-medium text-gray-900">{r.projectName}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{r.clientName}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{r.budgetHours.toFixed(0)}h</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{r.loggedHours.toFixed(0)}h</td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <ProgressBar pct={r.utilizationPct} className="w-28" />
-                          <span className="text-xs text-gray-500">{r.utilizationPct.toFixed(0)}%</span>
-                        </div>
-                      </td>
+              {reportKey === "project-utilization" ? (
+                <table className="w-full min-w-[640px]">
+                  <thead>
+                    <tr className="border-b border-gray-100 text-left text-xs font-semibold uppercase tracking-wide text-gray-400">
+                      <th className="px-4 py-3">Project</th>
+                      <th className="px-4 py-3">Client</th>
+                      <th className="px-4 py-3">Budget</th>
+                      <th className="px-4 py-3">Logged</th>
+                      <th className="px-4 py-3">Utilization</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {(report.rows as ProjectUtilizationRow[]).map((r) => (
+                      <tr key={r.projectId} className="border-b border-gray-50 last:border-0">
+                        <td className="px-4 py-3 text-sm font-medium text-gray-900">{r.projectName}</td>
+                        <td className="px-4 py-3 text-sm text-gray-600">{r.clientName}</td>
+                        <td className="px-4 py-3 text-sm text-gray-600">{r.budgetHours.toFixed(0)}h</td>
+                        <td className="px-4 py-3 text-sm text-gray-600">{r.loggedHours.toFixed(0)}h</td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <ProgressBar pct={r.utilizationPct} className="w-28" />
+                            <span className="text-xs text-gray-500">{r.utilizationPct.toFixed(0)}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <GenericReportTable rows={report.rows as Record<string, unknown>[]} />
+              )}
             </div>
             <p className="border-t border-gray-100 px-4 py-2.5 text-xs text-gray-400">
               Generated {report.generatedAt ? formatDate(report.generatedAt, "MMM d, yyyy h:mm a") : "just now"}
@@ -383,6 +389,41 @@ function ClientAuditSection({
         Generated {report.generatedAt ? formatDate(report.generatedAt, "MMM d, yyyy h:mm a") : "just now"}
       </p>
     </div>
+  );
+}
+
+/**
+ * Renders any report's real rows as a table whose columns are derived from
+ * the row data itself — used for every report key except Project
+ * Utilization (which keeps its own fixed, chart-paired columns above).
+ * Column labels/cell formatting mirror services/pdfTable.ts exactly, so the
+ * on-screen preview and the PDF/Excel/CSV export always agree.
+ */
+function GenericReportTable({ rows }: { rows: Record<string, unknown>[] }) {
+  const headers = Object.keys(rows[0] ?? {});
+  return (
+    <table className="w-full min-w-[640px]">
+      <thead>
+        <tr className="border-b border-gray-100 text-left text-xs font-semibold uppercase tracking-wide text-gray-400">
+          {headers.map((h) => (
+            <th key={h} className="whitespace-nowrap px-4 py-3">
+              {humanizeHeader(h)}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row, i) => (
+          <tr key={i} className="border-b border-gray-50 last:border-0">
+            {headers.map((h) => (
+              <td key={h} className="whitespace-nowrap px-4 py-3 text-sm text-gray-600">
+                {formatReportCell(row[h])}
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 

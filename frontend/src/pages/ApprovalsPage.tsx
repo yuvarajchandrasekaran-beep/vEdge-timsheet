@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useApprovalsPending, useApproveTimesheet, useBulkApprove, useBulkReject, useRejectTimesheet } from "../hooks/useApprovals";
 import { useDepartments } from "../hooks/useDepartments";
 import { usePageHeader } from "../hooks/usePageHeader";
+import { useAuth } from "../hooks/useAuth";
 import { Avatar } from "../components/common/Avatar";
 import { Badge } from "../components/common/Badge";
 import { LoadingBlock } from "../components/common/Spinner";
@@ -9,9 +10,10 @@ import { ErrorState } from "../components/common/ErrorState";
 import { EmptyState } from "../components/common/EmptyState";
 import { Pagination } from "../components/common/Pagination";
 import { Modal } from "../components/common/Modal";
+import { DelegationModal } from "../components/approvals/DelegationModal";
 import { ROLE_LABELS } from "../types";
 import { formatDateTime, formatHoursMinutes, formatWeekRange } from "../utils/format";
-import { IconCheck, IconCheckSquare, IconSearch, IconX } from "../components/common/icons";
+import { IconCheck, IconCheckSquare, IconSearch, IconUsers, IconX } from "../components/common/icons";
 import { useToast } from "../components/common/Toast";
 import { getApiErrorMessage } from "../api/client";
 
@@ -26,6 +28,8 @@ const PAGE_SIZE = 10;
 
 export default function ApprovalsPage() {
   const { showToast } = useToast();
+  const { hasRole } = useAuth();
+  const [delegationModalOpen, setDelegationModalOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("PENDING");
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
@@ -107,8 +111,9 @@ export default function ApprovalsPage() {
             ))}
           </div>
 
-          {tab === "PENDING" && selected.size > 0 && (
-            <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2">
+            {tab === "PENDING" && selected.size > 0 && (
+              <>
               <button
                 onClick={() =>
                   bulkApprove.mutate(Array.from(selected), {
@@ -139,8 +144,18 @@ export default function ApprovalsPage() {
                 <IconX size={16} />
                 Bulk reject ({selected.size})
               </button>
-            </div>
-          )}
+              </>
+            )}
+            {hasRole("PROJECT_ADMIN", "SUPER_ADMIN") && (
+              <button
+                onClick={() => setDelegationModalOpen(true)}
+                className="flex items-center gap-2 rounded-xl border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
+              >
+                <IconUsers size={16} />
+                Delegate my approvals
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="flex flex-col gap-3 border-b border-gray-100 p-4 sm:flex-row sm:items-center">
@@ -374,6 +389,8 @@ export default function ApprovalsPage() {
           <p className="mt-2 text-sm text-status-danger">{getApiErrorMessage(rejectMutation.error, "Couldn't return this timesheet.")}</p>
         )}
       </Modal>
+
+      <DelegationModal open={delegationModalOpen} onClose={() => setDelegationModalOpen(false)} />
     </div>
   );
 }

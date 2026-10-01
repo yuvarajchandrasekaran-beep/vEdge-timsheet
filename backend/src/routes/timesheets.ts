@@ -10,6 +10,7 @@ import { writeAuditLog } from "../utils/audit";
 import { notify } from "../services/notify";
 import { resolveApprover } from "../services/approvalRouting";
 import { TIMESHEET_STATUS } from "../constants/enums";
+import { buildWorkbookFromRows, rowsToCsv } from "../services/excel";
 
 const router = Router();
 
@@ -148,6 +149,84 @@ router.get(
     // Array of full Timesheet objects (not wrapped) — useTimesheetHistory
     // types this as Timesheet[] directly.
     res.json(await Promise.all(timesheets.map((t) => serializeTimesheet(t.id))));
+  })
+);
+
+/**
+ * @swagger
+ * /timesheets/me/period-export:
+ *   get:
+ *     summary: Export a Monthly/Fortnight period's timesheet grid (one row per project/task, one column per date) as CSV or Excel
+ *     tags: [Timesheets]
+ *     security: [{ bearerAuth: [] }]
+ */
+router.get(
+  "/me/period-export",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const weekStarts = String(req.query.weekStarts ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (weekStarts.length === 0) throw ApiError.badRequest("weekStarts is required (comma-separated ISO dates)");
+    const format = String(req.query.format ?? "xlsx");
+
+    const timesheets = await Promise.all(
+      weekStarts.map(async (ws) => {
+        const weekStartDate = new Date(ws);
+        if (isNaN(weekStartDate.getTime())) throw ApiError.badRequest(`Invalid weekStart "${ws}"`);
+        const t = await prisma.timesheet.findUnique({
+          where: { userId_weekStartDate: { userId: req.user!.id, weekStartDate } },
+        });
+        return t ? serializeTimesheet(t.id) : null;
+      })
+    );
+
+    // Full ordered list of dates across every week (Mon..Sun each), used as
+    // this export's date columns — mirrors the grid exactly as shown on
+    // screen regardless of which weeks had an actual Timesheet row yet.
+    const allDates: string[] = [];
+    for (const ws of weekStarts) {
+      const start = new Date(ws);
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(start);
+        d.setUTCDate(start.getUTCDate() + i);
+        allDates.push(toIsoDate(d));
+      }
+    }
+
+    const rowsByTask = new Map<number, { project: string; task: string; hours: Map<string, number> }>();
+    for (const t of timesheets) {
+      if (!t) continue;
+      for (const e of t.entries) {
+        if (!rowsByTask.has(e.projectTaskId)) {
+          rowsByTask.set(e.projectTaskId, { project: e.projectName, task: e.taskName, hours: new Map() });
+        }
+        rowsByTask.get(e.projectTaskId)!.hours.set(e.entryDate, e.hours);
+      }
+    }
+
+    const exportRows = [...rowsByTask.values()].map((r) => {
+      const row: Record<string, unknown> = { Project: r.project, Task: r.task };
+      let total = 0;
+      for (const date of allDates) {
+        const hours = r.hours.get(date) ?? 0;
+        row[date] = hours || "";
+        total += hours;
+      }
+      row["Total"] = total;
+      return row;
+    });
+
+    const fileBase = `timesheet_${weekStarts[0]}_to_${weekStarts[weekStarts.length - 1]}`;
+    if (format === "csv") {
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", `attachment; filename="${fileBase}.csv"`);
+      return res.send(rowsToCsv(exportRows));
+    }
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="${fileBase}.xlsx"`);
+    res.send(buildWorkbookFromRows(exportRows, "Timesheet"));
   })
 );
 
