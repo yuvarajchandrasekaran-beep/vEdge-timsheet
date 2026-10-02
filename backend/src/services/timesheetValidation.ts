@@ -74,6 +74,16 @@ export async function validateEntries(userId: number, entries: EntryInput[]): Pr
       continue;
     }
 
+    // A 0-hour entry only ever means "clear whatever was saved here" — it
+    // never commits new time — so it must always be accepted, even once the
+    // project/task has since closed, gone inactive, or its window/cap no
+    // longer covers this date. Without this, the moment any of those change
+    // out from under an already-logged entry, the corrective save that's
+    // trying to zero it back out keeps getting rejected by the very rule
+    // it's trying to clear, and the stale entry can never be removed again
+    // (the UI's "remove row" / clear-cell action silently fails forever).
+    if (entry.hours === 0) continue;
+
     if (task.project.status === "ARCHIVED" || task.project.status === "COMPLETED") {
       issues.push({
         projectTaskId: entry.projectTaskId,
