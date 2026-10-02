@@ -307,11 +307,23 @@ export default function TimesheetPeriodPage({ kind }: { kind: PeriodKind }) {
     const msgs = new Set<string>();
     for (const q of summaryQueries) {
       for (const issue of q.data?.validation ?? []) {
-        if (issue.severity === "blocking") msgs.add(issue.message);
+        // Each week's own GET response computes COMMENT_REQUIRED in
+        // isolation (does THIS week alone have a comment?), but the actual
+        // rule — and what the real submit-batch endpoint enforces — is "at
+        // least one comment anywhere in the whole period". Surfacing the
+        // per-week version here falsely blocked submission whenever any
+        // single week lacked its own comment, even with one elsewhere in
+        // the period satisfying the real rule. Re-derived period-wide below.
+        if (issue.severity === "blocking" && issue.code !== "COMMENT_REQUIRED") msgs.add(issue.message);
       }
     }
+    const hasEntryComment = rows.some((r) => allDates.some((d) => Number(r.hours[d]) > 0 && r.notes[d]?.trim()));
+    const hasWeekNoteComment = summaryQueries.some((q) => q.data?.weekNotes?.trim()) || !!globalComment.trim();
+    if (!hasEntryComment && !hasWeekNoteComment) {
+      msgs.add("At least one comment is required before submitting — add a note on any entry, or use the comments box.");
+    }
     return [...msgs];
-  }, [summaryQueries]);
+  }, [summaryQueries, rows, allDates, globalComment]);
   const warnings = useMemo(() => {
     const msgs = new Set<string>();
     for (const q of summaryQueries) {
