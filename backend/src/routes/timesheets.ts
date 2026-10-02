@@ -509,13 +509,15 @@ router.post(
         where: { userId_weekStartDate: { userId: req.user!.id, weekStartDate } },
         include: { entries: true },
       });
-      if (timesheet && timesheet.entries.length > 0) timesheets.push(timesheet);
+      // A week that's already Submitted/Approved/etc. is left out rather than
+      // failing the whole batch — submitting "the rest of the period" should
+      // still work even though one week in it has already moved on.
+      if (timesheet && timesheet.entries.length > 0 && EDITABLE_STATUSES.includes(timesheet.status)) {
+        timesheets.push(timesheet);
+      }
     }
-    if (timesheets.length === 0) throw ApiError.badRequest("Nothing to submit in this period");
-
-    const notEditable = timesheets.find((t) => !EDITABLE_STATUSES.includes(t.status));
-    if (notEditable) {
-      throw ApiError.conflict(`Week of ${toIsoDate(notEditable.weekStartDate)} is already "${notEditable.status}".`);
+    if (timesheets.length === 0) {
+      throw ApiError.badRequest("Nothing left to submit in this period — every week is already submitted or approved.");
     }
 
     // Per-week structural/hours/holiday issues, plus ONE mandatory-comment

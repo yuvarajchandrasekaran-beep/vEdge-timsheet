@@ -287,7 +287,13 @@ export default function TimesheetPeriodPage({ kind }: { kind: PeriodKind }) {
 
   const grandTotal = weekTotal(rows, allDates);
 
-  const weekSummaries = weekStarts.map((ws) => ({
+  // A week that's already Submitted/Approved/etc. can't be touched again, so
+  // it's left out of what this submission preview/request covers — matches
+  // the backend's own submit-batch, which likewise only ever acts on the
+  // still-editable weeks in the period (see routes/timesheets.ts).
+  const submittableWeekStarts = weekStarts.filter((ws) => isWeekEditable(ws));
+
+  const weekSummaries = submittableWeekStarts.map((ws) => ({
     weekStart: ws,
     weekEnd: getWeekEnd(ws),
     totalHours: weekTotal(rows, getWeekDays(ws).map((d) => d.date)),
@@ -305,7 +311,16 @@ export default function TimesheetPeriodPage({ kind }: { kind: PeriodKind }) {
 
   const blockingIssues = useMemo(() => {
     const msgs = new Set<string>();
-    for (const q of summaryQueries) {
+    if (weekStarts.length > 0 && submittableWeekStarts.length === 0) {
+      msgs.add("Every week in this period is already submitted or approved — there's nothing left to submit.");
+      return [...msgs];
+    }
+    summaryQueries.forEach((q, i) => {
+      // An already-submitted/approved week can never be fixed again, so a
+      // stale issue on it (e.g. its project's window closed after it was
+      // approved) shouldn't permanently block resubmitting the rest of the
+      // period — only still-editable weeks' issues count here.
+      if (!isWeekEditable(weekStarts[i])) return;
       for (const issue of q.data?.validation ?? []) {
         // Each week's own GET response computes COMMENT_REQUIRED in
         // isolation (does THIS week alone have a comment?), but the actual
@@ -316,14 +331,17 @@ export default function TimesheetPeriodPage({ kind }: { kind: PeriodKind }) {
         // the period satisfying the real rule. Re-derived period-wide below.
         if (issue.severity === "blocking" && issue.code !== "COMMENT_REQUIRED") msgs.add(issue.message);
       }
-    }
-    const hasEntryComment = rows.some((r) => allDates.some((d) => Number(r.hours[d]) > 0 && r.notes[d]?.trim()));
-    const hasWeekNoteComment = summaryQueries.some((q) => q.data?.weekNotes?.trim()) || !!globalComment.trim();
+    });
+    const submittableDates = new Set(submittableWeekStarts.flatMap((ws) => getWeekDays(ws).map((d) => d.date)));
+    const hasEntryComment = rows.some((r) => allDates.some((d) => submittableDates.has(d) && Number(r.hours[d]) > 0 && r.notes[d]?.trim()));
+    const hasWeekNoteComment =
+      summaryQueries.some((q, i) => isWeekEditable(weekStarts[i]) && q.data?.weekNotes?.trim()) || !!globalComment.trim();
     if (!hasEntryComment && !hasWeekNoteComment) {
       msgs.add("At least one comment is required before submitting — add a note on any entry, or use the comments box.");
     }
     return [...msgs];
-  }, [summaryQueries, rows, allDates, globalComment]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [summaryQueries, rows, allDates, globalComment, weekStarts, submittableWeekStarts]);
   const warnings = useMemo(() => {
     const msgs = new Set<string>();
     for (const q of summaryQueries) {
@@ -357,7 +375,7 @@ export default function TimesheetPeriodPage({ kind }: { kind: PeriodKind }) {
       return;
     }
     submitBatch.mutate(
-      { weekStarts },
+      { weekStarts: submittableWeekStarts },
       {
         onSuccess: () => {
           setSubmitModalOpen(false);
