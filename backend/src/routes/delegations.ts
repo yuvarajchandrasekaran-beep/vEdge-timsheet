@@ -4,7 +4,7 @@ import { prisma } from "../lib/prisma";
 import { asyncHandler } from "../utils/asyncHandler";
 import { ApiError } from "../utils/errors";
 import { requireAuth } from "../middleware/auth";
-import { ROLES } from "../constants/enums";
+import { ROLES, PROJECT_MEMBER_ROLE } from "../constants/enums";
 import { writeAuditLog } from "../utils/audit";
 import { isProjectAdminAnywhere } from "../services/approvalRouting";
 
@@ -58,6 +58,53 @@ router.get(
   })
 );
 
+/**
+ * @swagger
+ * /delegations/eligible-proxies:
+ *   get:
+ *     summary: List the users who can actually be nominated as an approval proxy (Super Admin, or a real admin on at least one project) — anyone else would be a delegation that can never approve anything
+ *     tags: [Delegations]
+ *     security: [{ bearerAuth: [] }]
+ */
+router.get(
+  "/eligible-proxies",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    await assertCanManageDelegations(req.user!);
+    const [superAdmins, projectAdminMemberships] = await Promise.all([
+      prisma.user.findMany({
+        where: { status: "ACTIVE", role: { name: ROLES.SUPER_ADMIN } },
+        select: { id: true, name: true },
+      }),
+      prisma.projectMember.findMany({
+        where: { roleOnProject: PROJECT_MEMBER_ROLE.PROJECT_ADMIN, user: { status: "ACTIVE" } },
+        select: { user: { select: { id: true, name: true } }, project: { select: { name: true } } },
+      }),
+    ]);
+    // A person can be eligible either globally (Super Admin) or by admining
+    // one or more specific projects — surfacing *why* avoids the confusing
+    // "they're not even a Project Admin!" read of someone whose global role
+    // is something else (HR Admin, say) while a project's admin list still
+    // names them (see isProjectAdminAnywhere's docstring).
+    const byId = new Map<number, { id: number; name: string; reason: string }>();
+    for (const u of superAdmins) byId.set(u.id, { id: u.id, name: u.name, reason: "Super Admin" });
+    const projectNamesByUser = new Map<number, string[]>();
+    for (const m of projectAdminMemberships) {
+      const list = projectNamesByUser.get(m.user.id) ?? [];
+      list.push(m.project.name);
+      projectNamesByUser.set(m.user.id, list);
+    }
+    for (const m of projectAdminMemberships) {
+      if (byId.has(m.user.id)) continue;
+      const projectNames = projectNamesByUser.get(m.user.id) ?? [];
+      byId.set(m.user.id, { id: m.user.id, name: m.user.name, reason: `Project Admin: ${projectNames.join(", ")}` });
+    }
+    byId.delete(req.user!.id);
+    const eligible = [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+    res.json({ data: eligible });
+  })
+);
+
 const createSchema = z
   .object({
     toUserId: z.coerce.number(),
@@ -92,12 +139,29 @@ router.post(
       throw ApiError.badRequest("Only a Super Admin, or someone who already administers at least one project, can be nominated as an approval proxy");
     }
 
+    const startDate = new Date(body.startDate);
+    const endDate = new Date(body.endDate);
+    const overlapping = await prisma.delegation.findFirst({
+      where: {
+        fromUserId: req.user!.id,
+        toUserId: body.toUserId,
+        active: true,
+        startDate: { lte: endDate },
+        endDate: { gte: startDate },
+      },
+    });
+    if (overlapping) {
+      throw ApiError.badRequest(
+        `${toUser.name} is already your proxy from ${toIsoDate(overlapping.startDate)} to ${toIsoDate(overlapping.endDate)} — revoke it first or pick a non-overlapping range.`
+      );
+    }
+
     const delegation = await prisma.delegation.create({
       data: {
         fromUserId: req.user!.id,
         toUserId: body.toUserId,
-        startDate: new Date(body.startDate),
-        endDate: new Date(body.endDate),
+        startDate,
+        endDate,
       },
       include: { fromUser: true, toUser: true },
     });

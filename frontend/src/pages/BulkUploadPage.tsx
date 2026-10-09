@@ -29,8 +29,38 @@ type Step = 1 | 2 | 3;
 
 const STEP_LABELS: Record<Step, string> = { 1: "Upload", 2: "Map Columns", 3: "Review & Confirm" };
 
-const USER_FIELDS = ["Employee ID", "Full Name", "Email", "Role", "Department", "Job Title", "Manager Email"];
-const PROJECT_FIELDS = ["Client", "Project Code", "Project Name", "Start Date", "End Date", "Billing Type", "Budget Hours", "Project Admin Email"];
+// Must match UserImportRow / ProjectImportRow's own keys exactly (see
+// backend/src/services/userImport.ts and projectImport.ts) — these are the
+// literal column headers the template uses and the importer reads by exact
+// name, not a separate internal naming scheme. This list was previously a
+// shorter, differently-worded, differently-ordered set, which (a) had no
+// entry at all for "Start Date"/"Status" (Users) or "Sub-task Name"/"Project
+// Admin (Employee ID)" (Projects), so the Maps To dropdown had nothing
+// correct to offer those detected columns, and (b) since the default
+// mapping below only matched a detected column to its real field when the
+// names agreed, a wrong/incomplete list also meant mismatched defaults.
+const USER_FIELDS = [
+  "Employee ID",
+  "Full Name",
+  "Work Email",
+  "Department",
+  "Role",
+  "Reporting Manager (Employee ID)",
+  "Start Date",
+  "Status",
+];
+const PROJECT_FIELDS = [
+  "Client Name",
+  "Project Code",
+  "Project Name",
+  "Project Billing Type",
+  "Sub-task Name",
+  "Sub-task Billable",
+  "Sub-task Estimated Hours",
+  "Start Date",
+  "End Date",
+  "Project Admin (Employee ID)",
+];
 
 export default function BulkUploadPage() {
   usePageHeader("Bulk Upload (Excel)");
@@ -171,11 +201,17 @@ export default function BulkUploadPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {detectedColumns.map((col, idx) => (
+                  {detectedColumns.map((col) => (
                     <tr key={col} className="border-b border-gray-50 last:border-0">
                       <td className="px-4 py-2.5 font-medium text-gray-800">{col}</td>
                       <td className="px-4 py-2.5">
-                        <select defaultValue={fieldLabels[idx] ?? fieldLabels[0]} className="input py-1.5 text-sm">
+                        {/* Defaults to the field of the same name — the importer reads the
+                            uploaded file by exact header, so when the template's own headers
+                            come back unchanged (the normal path) this is always an exact match.
+                            Matching this way (instead of by position) means a reordered or
+                            partial set of columns still lines up correctly instead of drifting
+                            out of sync with fieldLabels after the first unmatched column. */}
+                        <select defaultValue={fieldLabels.includes(col) ? col : "__ignore"} className="input py-1.5 text-sm">
                           {fieldLabels.map((f) => (
                             <option key={f} value={f}>
                               {f}
@@ -352,7 +388,10 @@ function ReviewRow({
           className="h-4 w-4 rounded border-gray-300 disabled:opacity-40"
         />
       </td>
-      <td className="px-3 py-2 text-gray-500">{row.rowNumber}</td>
+      {/* row.rowNumber is the literal spreadsheet row (header = row 1, so the first
+          data row is 2) — useful internally, but counting from the header row
+          confused reviewers expecting "row 1" to mean their first data row. */}
+      <td className="px-3 py-2 text-gray-500">{row.rowNumber - 1}</td>
       <td className="px-3 py-2">
         <Badge tone={row.status === "VALID" ? "success" : row.status === "WARNING" ? "warning" : "danger"}>
           {row.status === "VALID" ? "Valid" : row.status === "WARNING" ? "Warning" : "Error"}

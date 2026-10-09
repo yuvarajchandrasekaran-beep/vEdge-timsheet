@@ -30,6 +30,11 @@ export default function ProjectsPage() {
   );
   const canCreate = hasRole("SUPER_ADMIN", "PROJECT_ADMIN");
   const canDelete = hasRole("SUPER_ADMIN");
+  // Bulk import is an HR Admin/Super Admin capability per the FS, same as
+  // the Users section's own Bulk Import — Project Admin manages projects
+  // day-to-day but was never meant to bulk-create them (and the backend's
+  // /projects/import/* routes now 403 a Project Admin, matching this).
+  const canBulkImport = hasRole("SUPER_ADMIN", "HR_ADMIN");
   // GET /clients 403s for an Individual User — match that here instead of
   // firing a request that's guaranteed to fail, and hide the Clients tab
   // (client management isn't part of their "view assigned projects" access).
@@ -62,7 +67,7 @@ export default function ProjectsPage() {
   return (
     <div className="flex min-h-full flex-col gap-5">
       <div className="flex justify-end gap-2">
-        {canCreate && (
+        {canBulkImport && (
           <button onClick={() => navigate("/bulk-upload?type=projects")} className="btn-secondary">
             <IconUpload size={16} />
             Bulk Import

@@ -1,9 +1,7 @@
 import { useState } from "react";
 import { Modal } from "../common/Modal";
 import { Spinner } from "../common/Spinner";
-import { useAuth } from "../../hooks/useAuth";
-import { useUsers } from "../../hooks/useUsers";
-import { useCreateDelegation, useDelegations, useRevokeDelegation } from "../../hooks/useApprovals";
+import { useCreateDelegation, useDelegations, useEligibleProxies, useRevokeDelegation } from "../../hooks/useApprovals";
 import { getApiErrorMessage } from "../../api/client";
 import { formatDate } from "../../utils/format";
 import { IconTrash } from "../common/icons";
@@ -16,7 +14,6 @@ import { IconTrash } from "../common/icons";
  * to configure on their side.
  */
 export function DelegationModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { user } = useAuth();
   const [toUserId, setToUserId] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -26,12 +23,11 @@ export function DelegationModal({ open, onClose }: { open: boolean; onClose: () 
   // The backend accepts Super Admin or anyone who already administers at
   // least one project — which can include someone whose global role is,
   // say, HR Admin (a project's admin list is assignable to anyone; see
-  // approvalRouting.ts#isProjectAdminAnywhere). There's no cheap way to
-  // check "real admin on some project" from here without a dedicated
-  // endpoint, so this offers everyone but the current user and lets the
-  // backend's own validation message catch an ineligible pick.
-  const usersQuery = useUsers({ page: 1, pageSize: 200 }, open);
-  const eligibleDelegates = (usersQuery.data?.data ?? []).filter((u) => u.id !== user?.id);
+  // approvalRouting.ts#isProjectAdminAnywhere). /delegations/eligible-proxies
+  // computes exactly that list server-side, so this never offers someone the
+  // backend would just turn around and reject.
+  const proxiesQuery = useEligibleProxies(open);
+  const eligibleDelegates = proxiesQuery.data ?? [];
 
   const createDelegation = useCreateDelegation();
   const revokeDelegation = useRevokeDelegation();
@@ -84,7 +80,7 @@ export function DelegationModal({ open, onClose }: { open: boolean; onClose: () 
             <option value="">Select a person…</option>
             {eligibleDelegates.map((u) => (
               <option key={u.id} value={u.id}>
-                {u.name}
+                {u.name} — {u.reason}
               </option>
             ))}
           </select>

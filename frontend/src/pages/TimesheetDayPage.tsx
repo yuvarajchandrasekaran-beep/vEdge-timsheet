@@ -42,7 +42,7 @@ export default function TimesheetDayPage() {
   const holidayName = holidayMap.get(date);
 
   const timesheetQuery = useMyTimesheet(weekStart);
-  const projectsQuery = useProjects({ status: "ACTIVE", page: 1, pageSize: 100 });
+  const projectsQuery = useProjects({ status: "ACTIVE", page: 1, pageSize: 100, mine: true });
   const saveDraft = useSaveTimesheetDraft();
   const submitMutation = useSubmitTimesheet();
   const { showToast } = useToast();
@@ -104,8 +104,20 @@ export default function TimesheetDayPage() {
           setSaveStatus("saved");
           // A line can type-check but still get rejected server-side (no
           // note on an over-8h entry, outside a project's window, over an
-          // hour cap) — without this, it just silently reverted on the next
-          // reload with no indication why.
+          // hour cap) — without the toast, it just silently reverted on the
+          // next reload with no indication why; without correcting `lines`
+          // right now, the grid kept showing the rejected (unsaved) value in
+          // the meantime, feeding a wrong total into this day's own warning.
+          if (data.rejectedEntries?.length) {
+            const rejected = new Set(data.rejectedEntries);
+            setLines((prev) =>
+              prev.map((l) => {
+                if (!rejected.has(`${l.projectTaskId}:${date}`)) return l;
+                const authoritative = data.entries.find((e) => e.projectTaskId === l.projectTaskId && e.entryDate === date);
+                return { ...l, hours: authoritative ? String(authoritative.hours) : "", notes: authoritative?.notes ?? "" };
+              })
+            );
+          }
           if (data.rejectedEntryMessages?.length) {
             showToast(`Some entries weren't saved: ${data.rejectedEntryMessages.join(" ")}`, "error");
           }

@@ -11,9 +11,10 @@ import { EmptyState } from "../components/common/EmptyState";
 import { Pagination } from "../components/common/Pagination";
 import { Modal } from "../components/common/Modal";
 import { DelegationModal } from "../components/approvals/DelegationModal";
+import { TimesheetDetailModal } from "../components/approvals/TimesheetDetailModal";
 import { ROLE_LABELS } from "../types";
 import { formatDateTime, formatHoursMinutes, formatWeekRange } from "../utils/format";
-import { IconCheck, IconCheckSquare, IconSearch, IconUsers, IconX } from "../components/common/icons";
+import { IconCheck, IconCheckSquare, IconEye, IconSearch, IconUsers, IconX } from "../components/common/icons";
 import { useToast } from "../components/common/Toast";
 import { getApiErrorMessage } from "../api/client";
 
@@ -37,6 +38,7 @@ export default function ApprovalsPage() {
   const [minPendingDays, setMinPendingDays] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [rejectTarget, setRejectTarget] = useState<{ timesheetId: string; userName: string } | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(null);
   const [rejectComment, setRejectComment] = useState("");
   // The reject modal below doubles as the bulk-reject modal — this is the
   // only thing that distinguishes which mode it's in (rejectTarget stays
@@ -89,6 +91,12 @@ export default function ApprovalsPage() {
     setTab(next);
     setPage(1);
     setSelected(new Set());
+    // Pending/Approved/Returned are different queues, not different views of
+    // the same list — a filter left over from Pending silently narrowing (or
+    // appearing to break) the Approved tab was confusing, not a convenience.
+    setSearch("");
+    setDepartment("");
+    setMinPendingDays("");
   }
 
   usePageHeader("Approvals", "Project Admin review of your projects' submitted timesheets");
@@ -232,7 +240,7 @@ export default function ApprovalsPage() {
                     <th className="px-4 py-3">Total hours</th>
                     <th className="px-4 py-3">Submitted on</th>
                     <th className="px-4 py-3">SLA</th>
-                    {tab === "PENDING" && <th className="px-4 py-3 text-right">Actions</th>}
+                    <th className="px-4 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -267,40 +275,50 @@ export default function ApprovalsPage() {
                           {item.pendingDays} {item.pendingDays === 1 ? "day" : "days"}
                         </Badge>
                       </td>
-                      {tab === "PENDING" && (
-                        <td className="px-4 py-5">
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              onClick={() =>
-                                approveMutation.mutate(
-                                  { timesheetId: item.timesheetId },
-                                  {
-                                    onSuccess: () => showToast(`Approved ${item.userName}'s timesheet.`, "success"),
-                                    onError: (err) => showToast(getApiErrorMessage(err, "Couldn't approve this timesheet."), "error"),
-                                  }
-                                )
-                              }
-                              disabled={approveMutation.isPending}
-                              className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-status-success hover:bg-emerald-100"
-                              aria-label="Approve"
-                              title="Approve"
-                            >
-                              <IconCheck size={16} />
-                            </button>
-                            <button
-                              onClick={() => {
-                                setRejectTarget({ timesheetId: item.timesheetId, userName: item.userName });
-                                setRejectComment("");
-                              }}
-                              className="flex h-8 w-8 items-center justify-center rounded-lg bg-rose-50 text-status-danger hover:bg-rose-100"
-                              aria-label="Reject"
-                              title="Reject"
-                            >
-                              <IconX size={16} />
-                            </button>
-                          </div>
-                        </td>
-                      )}
+                      <td className="px-4 py-5">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => setDetailId(item.timesheetId)}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg bg-gray-50 text-gray-500 hover:bg-gray-100"
+                            aria-label="View details"
+                            title="View details"
+                          >
+                            <IconEye size={16} />
+                          </button>
+                          {tab === "PENDING" && (
+                            <>
+                              <button
+                                onClick={() =>
+                                  approveMutation.mutate(
+                                    { timesheetId: item.timesheetId },
+                                    {
+                                      onSuccess: () => showToast(`Approved ${item.userName}'s timesheet.`, "success"),
+                                      onError: (err) => showToast(getApiErrorMessage(err, "Couldn't approve this timesheet."), "error"),
+                                    }
+                                  )
+                                }
+                                disabled={approveMutation.isPending}
+                                className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-status-success hover:bg-emerald-100"
+                                aria-label="Approve"
+                                title="Approve"
+                              >
+                                <IconCheck size={16} />
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setRejectTarget({ timesheetId: item.timesheetId, userName: item.userName });
+                                  setRejectComment("");
+                                }}
+                                className="flex h-8 w-8 items-center justify-center rounded-lg bg-rose-50 text-status-danger hover:bg-rose-100"
+                                aria-label="Reject"
+                                title="Reject"
+                              >
+                                <IconX size={16} />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -391,6 +409,7 @@ export default function ApprovalsPage() {
       </Modal>
 
       <DelegationModal open={delegationModalOpen} onClose={() => setDelegationModalOpen(false)} />
+      <TimesheetDetailModal timesheetId={detailId} onClose={() => setDetailId(null)} />
     </div>
   );
 }

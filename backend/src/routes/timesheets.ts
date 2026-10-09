@@ -11,6 +11,7 @@ import { notify } from "../services/notify";
 import { resolveApprover } from "../services/approvalRouting";
 import { TIMESHEET_STATUS } from "../constants/enums";
 import { buildWorkbookFromRows, rowsToCsv } from "../services/excel";
+import { timesheetCode } from "../utils/timesheetCode";
 
 const router = Router();
 
@@ -24,10 +25,6 @@ function addDays(date: Date, days: number): Date {
 
 function toIsoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
-}
-
-function timesheetCode(id: number, weekStartDate: Date): string {
-  return `TS-${weekStartDate.getUTCFullYear()}-${String(id).padStart(2, "0")}`;
 }
 
 async function serializeTimesheet(timesheetId: number) {
@@ -446,8 +443,18 @@ async function performSubmit(timesheet: TimesheetWithEntries, actor: { id: numbe
     });
     await prisma.timesheet.update({ where: { id: timesheet.id }, data: { status: TIMESHEET_STATUS.APPROVED } });
   } else {
+    const code = timesheetCode(timesheet.id, timesheet.weekStartDate);
     for (const approverId of approverIds) {
-      await notify(approverId, "PendingApproval", "New timesheet awaiting your approval", `${actor.name}'s week of ${toIsoDate(timesheet.weekStartDate)} is ready for review.`, { timesheetId: timesheet.id });
+      // Named the timesheet and submitter explicitly — multiple pending
+      // notifications otherwise all read as the same generic title, with no
+      // way to tell which is which without opening each one.
+      await notify(
+        approverId,
+        "PendingApproval",
+        `New timesheet awaiting your approval — ${code}`,
+        `${actor.name}'s week of ${toIsoDate(timesheet.weekStartDate)} (${code}) is ready for review.`,
+        { timesheetId: timesheet.id }
+      );
     }
   }
 }

@@ -51,6 +51,11 @@ export interface ProjectsQueryParams {
   search?: string;
   page?: number;
   pageSize?: number;
+  /** Forces membership-only scoping even for Super Admin/HR Admin, who
+   * otherwise get every project — used by the timesheet entry pages, where
+   * logging time requires real membership regardless of role (see the
+   * backend's GET /projects for the matching NOT_ASSIGNED enforcement). */
+  mine?: boolean;
 }
 
 export function useProjects(params: ProjectsQueryParams = {}) {

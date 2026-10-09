@@ -101,6 +101,21 @@ export function useDelegations(enabled = true) {
   });
 }
 
+/** Only Super Admins and users who actually admin at least one project can
+ * ever be routed a delegated approval (see resolveApprover) — anyone else
+ * nominated here would be a delegation that can never approve anything, so
+ * the picker is restricted to this list rather than the full user directory. */
+export function useEligibleProxies(enabled = true) {
+  return useQuery({
+    queryKey: ["delegations", "eligible-proxies"],
+    queryFn: async () => {
+      const res = await apiClient.get<{ data: { id: string; name: string; reason: string }[] }>("/delegations/eligible-proxies");
+      return res.data.data;
+    },
+    enabled,
+  });
+}
+
 export function useCreateDelegation() {
   const qc = useQueryClient();
   return useMutation({

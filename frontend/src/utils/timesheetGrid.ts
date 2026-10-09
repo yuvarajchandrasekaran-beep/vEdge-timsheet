@@ -82,6 +82,45 @@ export function emptyRow(days: string[], opts: { projectTaskId: string; projectI
   };
 }
 
+/**
+ * After a draft save, any cell the server rejected (outside a project's
+ * window, over a cap, missing a required note, no longer assigned, …) was
+ * never actually persisted — but until now the grid kept showing whatever
+ * the user had typed, as if it had saved. That phantom value then fed every
+ * other total/validation computed from `rows` (day/week totals, the submit
+ * preview, warning/blocking messages), so a rejected entry could make a week
+ * look over a hard hour cap on screen while the server's own total — the one
+ * actually enforced at submit — stayed well under it, or vice versa.
+ * `rejectedKeys` is the `rejectedEntries` the PUT response returns, each a
+ * "projectTaskId:entryDate" string; `authoritativeEntries` is that same
+ * response's own `entries` — what's actually saved right now.
+ */
+export function reconcileRejectedEntries(
+  rows: GridRow[],
+  rejectedKeys: string[],
+  authoritativeEntries: TimesheetEntry[]
+): GridRow[] {
+  if (rejectedKeys.length === 0) return rows;
+  const authoritativeByKey = new Map(authoritativeEntries.map((e) => [`${e.projectTaskId}:${e.entryDate}`, e]));
+  const rejectedByTask = new Map<string, string[]>();
+  for (const key of rejectedKeys) {
+    const [projectTaskId, entryDate] = key.split(":");
+    rejectedByTask.set(projectTaskId, [...(rejectedByTask.get(projectTaskId) ?? []), entryDate]);
+  }
+  return rows.map((row) => {
+    const dates = rejectedByTask.get(row.projectTaskId);
+    if (!dates) return row;
+    const hours = { ...row.hours };
+    const notes = { ...row.notes };
+    for (const date of dates) {
+      const authoritative = authoritativeByKey.get(`${row.projectTaskId}:${date}`);
+      hours[date] = authoritative ? String(authoritative.hours) : "";
+      notes[date] = authoritative?.notes ?? "";
+    }
+    return { ...row, hours, notes };
+  });
+}
+
 export function rowsToEntries(rows: GridRow[]): TimesheetEntryInput[] {
   const entries: TimesheetEntryInput[] = [];
   for (const row of rows) {

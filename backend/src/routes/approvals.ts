@@ -9,6 +9,7 @@ import { writeAuditLog } from "../utils/audit";
 import { notify } from "../services/notify";
 import { isProjectAdminAnywhere, resolveApprover } from "../services/approvalRouting";
 import { paginationParams, paginated } from "../utils/pagination";
+import { timesheetCode } from "../utils/timesheetCode";
 
 const router = Router();
 
@@ -82,10 +83,14 @@ router.get(
         }
       }
     } else {
-      // APPROVED / REJECTED tabs: timesheets this caller personally acted on.
+      // APPROVED / REJECTED tabs: timesheets this caller personally acted
+      // on — except Super Admin, whose role is org-wide oversight rather
+      // than one more approval queue, and who otherwise saw nothing here
+      // for any timesheet a Project Admin (not them) had approved, with no
+      // other screen to check an approval's outcome on someone else's behalf.
       const action = status === "APPROVED" ? "APPROVED" : "REJECTED";
       const approvals = await prisma.approval.findMany({
-        where: { approverId: req.user!.id, action },
+        where: req.user!.role === ROLES.SUPER_ADMIN ? { action } : { approverId: req.user!.id, action },
         include: { timesheet: { include: TIMESHEET_INCLUDE } },
         orderBy: { actedAt: "desc" },
       });
@@ -127,7 +132,8 @@ async function doApprove(timesheetId: number, actor: { id: number; role: string 
   }
   await prisma.approval.create({ data: { timesheetId, level: 1, approverId: actor.id, action: "APPROVED", comment } });
   const updated = await prisma.timesheet.update({ where: { id: timesheetId }, data: { status: TIMESHEET_STATUS.APPROVED } });
-  await notify(updated.userId, "FinalApproval", "Timesheet approved", `Your timesheet for the week of ${toIsoDate(updated.weekStartDate)} has been approved.`, { timesheetId });
+  const code = timesheetCode(updated.id, updated.weekStartDate);
+  await notify(updated.userId, "FinalApproval", `Timesheet approved — ${code}`, `Your timesheet for the week of ${toIsoDate(updated.weekStartDate)} (${code}) has been approved.`, { timesheetId });
   return updated;
 }
 
@@ -145,7 +151,8 @@ async function doReject(timesheetId: number, actor: { id: number; role: string }
 
   await prisma.approval.create({ data: { timesheetId, level: 1, approverId: actor.id, action: "REJECTED", comment } });
   const updated = await prisma.timesheet.update({ where: { id: timesheetId }, data: { status: TIMESHEET_STATUS.REJECTED } });
-  await notify(updated.userId, "Rejection", "Timesheet rejected", comment, { timesheetId });
+  const code = timesheetCode(updated.id, updated.weekStartDate);
+  await notify(updated.userId, "Rejection", `Timesheet returned — ${code}`, `Your timesheet for the week of ${toIsoDate(updated.weekStartDate)} (${code}) was returned: ${comment}`, { timesheetId });
   return updated;
 }
 

@@ -92,7 +92,14 @@ router.get(
       ],
     };
 
-    if (req.user!.role === ROLES.PROJECT_ADMIN || req.user!.role === ROLES.INDIVIDUAL_USER) {
+    // Super Admin/HR Admin get every project here by default — the Projects
+    // management page needs that to administer the whole org. But logging
+    // time is membership-gated for every role with no exception (see
+    // validateEntries's NOT_ASSIGNED check), so the *timesheet* pages pass
+    // `mine=true` to force this same scoping for admins too — otherwise
+    // their "Add a project/task" picker offered projects that would only
+    // ever get silently rejected once hours were actually typed in.
+    if (req.user!.role === ROLES.PROJECT_ADMIN || req.user!.role === ROLES.INDIVIDUAL_USER || req.query.mine === "true") {
       // Any membership row counts, not just an admin one — a Project Admin
       // on one project can simultaneously be a plain team member on another
       // (or, per ProjectDetailModal's Members tab, on the same one), and
@@ -221,7 +228,12 @@ router.post(
 router.get(
   "/import/template",
   requireAuth,
-  requireRole(ROLES.SUPER_ADMIN, ROLES.PROJECT_ADMIN),
+  // Matches the Users import's own scoping (HR Admin, not Project Admin) —
+  // per the FS, bulk import is an HR Admin/Super Admin capability; Project
+  // Admin manages projects day-to-day but was never meant to bulk-create
+  // them, and this route previously left HR Admin unable to even download
+  // the template despite being the role that's actually supposed to use it.
+  requireRole(ROLES.SUPER_ADMIN, ROLES.HR_ADMIN),
   asyncHandler(async (_req, res) => {
     const headers = [
       "Client Name",
@@ -265,7 +277,7 @@ router.get(
 router.post(
   "/import/dry-run",
   requireAuth,
-  requireRole(ROLES.SUPER_ADMIN, ROLES.PROJECT_ADMIN),
+  requireRole(ROLES.SUPER_ADMIN, ROLES.HR_ADMIN),
   upload.single("file"),
   asyncHandler(async (req, res) => {
     if (!req.file) throw ApiError.badRequest("No file uploaded");
@@ -316,7 +328,7 @@ const commitSchema = z.object({
 router.post(
   "/import/commit",
   requireAuth,
-  requireRole(ROLES.SUPER_ADMIN, ROLES.PROJECT_ADMIN),
+  requireRole(ROLES.SUPER_ADMIN, ROLES.HR_ADMIN),
   asyncHandler(async (req, res) => {
     const body = commitSchema.parse(req.body);
     let successRows = 0;

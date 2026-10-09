@@ -10,7 +10,7 @@ import { getApiErrorMessage } from "../api/client";
 import { addWeeks, getWeekDays, getWeekEnd } from "../utils/week";
 import { formatHoursMinutes, formatWeekRange } from "../utils/format";
 import { DAILY_HOUR_LIMIT, WEEKLY_HOUR_LIMIT, validateCellHours, validateDayTotal, validateWeekTotal } from "../utils/validation";
-import { buildRowsFromTimesheet, dayTotal, emptyRow, rowTotal, rowsToEntries, weekTotal, type GridRow } from "../utils/timesheetGrid";
+import { buildRowsFromTimesheet, dayTotal, emptyRow, reconcileRejectedEntries, rowTotal, rowsToEntries, weekTotal, type GridRow } from "../utils/timesheetGrid";
 import { StatusBadge } from "../components/common/Badge";
 import { LoadingBlock } from "../components/common/Spinner";
 import { ErrorState } from "../components/common/ErrorState";
@@ -40,7 +40,7 @@ export default function TimesheetWeeklyPage() {
   usePageHeader("Weekly Timesheet", formatWeekRange(weekStart, weekEnd));
 
   const timesheetQuery = useMyTimesheet(weekStart);
-  const projectsQuery = useProjects({ status: "ACTIVE", page: 1, pageSize: 100 });
+  const projectsQuery = useProjects({ status: "ACTIVE", page: 1, pageSize: 100, mine: true });
   const saveDraft = useSaveTimesheetDraft();
   const submitMutation = useSubmitTimesheet();
   const recallMutation = useRecallTimesheet();
@@ -110,8 +110,14 @@ export default function TimesheetWeeklyPage() {
         setLastSavedAt(new Date());
         // A cell can type-check but still get rejected server-side (no note
         // on an over-8h entry, outside a project's window, over an hour
-        // cap) — without this, it just silently reverted on the next
-        // reload with no indication why.
+        // cap) — without the toast, it just silently reverted on the next
+        // reload with no indication why; without correcting `rows` right
+        // now, the grid kept showing the rejected (unsaved) value in the
+        // meantime, feeding wrong totals into the day/week warnings and the
+        // submit preview until that eventual reload.
+        if (data.rejectedEntries?.length) {
+          setRows((prev) => reconcileRejectedEntries(prev, data.rejectedEntries!, data.entries));
+        }
         if (data.rejectedEntryMessages?.length) {
           showToast(`Some entries weren't saved: ${data.rejectedEntryMessages.join(" ")}`, "error");
         }

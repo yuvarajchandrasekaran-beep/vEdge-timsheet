@@ -14,6 +14,7 @@ import {
   buildRowsFromTimesheets,
   dayTotal,
   emptyRow,
+  reconcileRejectedEntries,
   rowsToEntries,
   weekTotal,
   type GridRow,
@@ -90,7 +91,7 @@ export default function TimesheetPeriodPage({ kind }: { kind: PeriodKind }) {
   // full allDays/allDates so hiding weekends never changes what counts.
   const [showWeekends, setShowWeekends] = useShowWeekends();
 
-  const projectsQuery = useProjects({ status: "ACTIVE", page: 1, pageSize: 100 });
+  const projectsQuery = useProjects({ status: "ACTIVE", page: 1, pageSize: 100, mine: true });
   const summaryQueries = useMyTimesheetsForPeriod(weekStarts);
   const saveDraft = useSaveTimesheetDraft();
   const copyPeriod = useCopyPeriod();
@@ -191,8 +192,14 @@ export default function TimesheetPeriodPage({ kind }: { kind: PeriodKind }) {
         setSaveStatus("saved");
         // A cell can type-check but still get rejected server-side (no note
         // on an over-8h entry, outside a project's window, over an hour
-        // cap) — without this, it just silently reverted on the next
-        // reload with no indication why.
+        // cap) — without the toast, it just silently reverted on the next
+        // reload with no indication why; without correcting `rows` right
+        // now, the grid kept showing the rejected (unsaved) value in the
+        // meantime, feeding wrong totals into this period's warnings and the
+        // submit preview until that eventual reload.
+        if (data.rejectedEntries?.length) {
+          setRows((prev) => reconcileRejectedEntries(prev, data.rejectedEntries!, data.entries));
+        }
         if (data.rejectedEntryMessages?.length) {
           showToast(`Some entries weren't saved: ${data.rejectedEntryMessages.join(" ")}`, "error");
         }

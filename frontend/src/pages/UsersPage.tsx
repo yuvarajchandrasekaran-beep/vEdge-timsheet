@@ -8,6 +8,7 @@ import type { RoleName, UserStatus } from "../types";
 import { ROLE_LABELS } from "../types";
 import { getApiErrorMessage } from "../api/client";
 import { Avatar } from "../components/common/Avatar";
+import { Modal } from "../components/common/Modal";
 import { StatusBadge } from "../components/common/Badge";
 import { LoadingBlock } from "../components/common/Spinner";
 import { ErrorState } from "../components/common/ErrorState";
@@ -33,6 +34,7 @@ export default function UsersPage() {
   const [profileId, setProfileId] = useState<string | null>(null);
   const [impersonatingId, setImpersonatingId] = useState<string | null>(null);
   const [impersonateError, setImpersonateError] = useState<string | null>(null);
+  const [impersonateTarget, setImpersonateTarget] = useState<{ id: string; name: string } | null>(null);
 
   const { data: departments } = useDepartments();
   const { data: roles } = useRoles();
@@ -42,9 +44,7 @@ export default function UsersPage() {
   const canImpersonate = hasRole("SUPER_ADMIN");
 
   async function handleImpersonate(userId: string) {
-    if (!confirm("Log in as this user? This is logged to the audit trail, and everything you do will be attributed to their account until you return to your own.")) {
-      return;
-    }
+    setImpersonateTarget(null);
     setImpersonateError(null);
     setImpersonatingId(userId);
     try {
@@ -216,7 +216,7 @@ export default function UsersPage() {
                             </button>
                             {canImpersonate && u.id !== currentUser?.id && u.status === "ACTIVE" && (
                               <button
-                                onClick={() => handleImpersonate(u.id)}
+                                onClick={() => setImpersonateTarget({ id: u.id, name: u.name })}
                                 disabled={impersonatingId === u.id}
                                 title="Log in as this user"
                                 className="rounded-lg px-2.5 py-1 text-xs font-medium text-brand-primary hover:bg-blue-50 disabled:opacity-60"
@@ -267,6 +267,28 @@ export default function UsersPage() {
 
       <NewUserModal open={newModalOpen} onClose={() => setNewModalOpen(false)} />
       <UserProfileModal userId={profileId} onClose={() => setProfileId(null)} />
+
+      <Modal
+        open={!!impersonateTarget}
+        onClose={() => setImpersonateTarget(null)}
+        title="Log in as this user?"
+        size="sm"
+        footer={
+          <>
+            <button onClick={() => setImpersonateTarget(null)} className="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100">
+              Cancel
+            </button>
+            <button onClick={() => impersonateTarget && handleImpersonate(impersonateTarget.id)} className="btn-primary">
+              Log in as {impersonateTarget?.name}
+            </button>
+          </>
+        }
+      >
+        <p className="text-sm text-gray-600">
+          You'll be logged in as <span className="font-medium text-gray-900">{impersonateTarget?.name}</span>. This is logged to
+          the audit trail, and everything you do will be attributed to their account until you return to your own.
+        </p>
+      </Modal>
     </div>
   );
 }

@@ -34,7 +34,21 @@ export function ProjectDetailModal({
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<DetailTab>(initialTab);
-  useEffect(() => setTab(initialTab), [initialTab, projectId]);
+  // This modal is a single long-lived instance in ProjectsPage — only its
+  // `projectId` prop changes as different rows are opened, so it never
+  // unmounts between them. Without resetting these here, an unsaved draft
+  // (a half-typed task name, a pending error message) from one project would
+  // keep showing after switching straight to a different project's modal.
+  useEffect(() => {
+    setTab(initialTab);
+    setNewTaskName("");
+    setNewTaskHours("");
+    setNewTaskBillable(true);
+    setNewMemberId("");
+    setMemberError(null);
+    setTaskError(null);
+    setOverviewError(null);
+  }, [initialTab, projectId]);
 
   const projectQuery = useProject(projectId ?? undefined);
   const updateProject = useUpdateProject();
@@ -84,6 +98,11 @@ export function ProjectDetailModal({
     );
   }
 
+  function changeTaskStatus(taskId: string, status: "ACTIVE" | "INACTIVE") {
+    setTaskError(null);
+    updateTask.mutate({ id: taskId, patch: { status } }, { onError: (err) => setTaskError(getApiErrorMessage(err)) });
+  }
+
   function removeMemberSafely(userId: string, roleOnProject: string) {
     if (!project) return;
     if (roleOnProject === "Project Admin" && admins.length <= 1) {
@@ -131,6 +150,54 @@ export function ProjectDetailModal({
 
               {canManage && (
                 <div className="grid grid-cols-2 gap-3 border-t border-gray-100 pt-4 sm:grid-cols-2">
+                  <label className="text-sm sm:col-span-2">
+                    <span className="mb-1 block font-medium text-gray-700">Name</span>
+                    <input
+                      type="text"
+                      defaultValue={project.name}
+                      className="input"
+                      onBlur={(e) => {
+                        const value = e.target.value.trim();
+                        if (!value || value === project.name) return;
+                        setOverviewError(null);
+                        updateProject.mutate(
+                          { id: project.id, patch: { name: value } },
+                          { onError: (err) => setOverviewError(getApiErrorMessage(err)) }
+                        );
+                      }}
+                    />
+                  </label>
+                  <label className="text-sm">
+                    <span className="mb-1 block font-medium text-gray-700">Start date</span>
+                    <input
+                      type="date"
+                      defaultValue={project.startDate.slice(0, 10)}
+                      className="input"
+                      onChange={(e) => {
+                        if (!e.target.value) return;
+                        setOverviewError(null);
+                        updateProject.mutate(
+                          { id: project.id, patch: { startDate: e.target.value } },
+                          { onError: (err) => setOverviewError(getApiErrorMessage(err)) }
+                        );
+                      }}
+                    />
+                  </label>
+                  <label className="text-sm">
+                    <span className="mb-1 block font-medium text-gray-700">End date</span>
+                    <input
+                      type="date"
+                      defaultValue={project.endDate ? project.endDate.slice(0, 10) : ""}
+                      className="input"
+                      onChange={(e) => {
+                        setOverviewError(null);
+                        updateProject.mutate(
+                          { id: project.id, patch: { endDate: e.target.value || null } },
+                          { onError: (err) => setOverviewError(getApiErrorMessage(err)) }
+                        );
+                      }}
+                    />
+                  </label>
                   <label className="text-sm">
                     <span className="mb-1 block font-medium text-gray-700">Status</span>
                     <select
@@ -171,6 +238,9 @@ export function ProjectDetailModal({
                       ))}
                     </select>
                   </label>
+                  {overviewError && <p className="text-xs text-status-danger sm:col-span-2">{overviewError}</p>}
+                  {/* Also mirrored just above the Client billing checkbox below, since this
+                      one `overviewError` state is shared by every field in this tab. */}
                 </div>
               )}
 
@@ -241,79 +311,86 @@ export function ProjectDetailModal({
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-gray-800">{t.name}</span>
                       <Badge tone={t.billable ? "brand" : "neutral"}>{t.billable ? "Billable" : "Non-billable"}</Badge>
+                      {!canManage && <Badge tone={t.status === "ACTIVE" ? "brand" : "neutral"}>{t.status === "ACTIVE" ? "Active" : "Inactive"}</Badge>}
                     </div>
                     {t.estimatedHours != null && (
                       <p className="mt-0.5 text-xs text-gray-400">{formatHoursDecimal(t.estimatedHours)} estimated</p>
                     )}
                   </div>
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    <select
-                      defaultValue={t.status}
-                      className="rounded-lg border border-gray-200 px-2 py-1 text-xs"
-                      onChange={(e) => updateTask.mutate({ id: t.id, patch: { status: e.target.value as "ACTIVE" | "INACTIVE" } })}
-                    >
-                      <option value="ACTIVE">Active</option>
-                      <option value="INACTIVE">Inactive</option>
-                    </select>
-                    <button
-                      onClick={() => removeTask(t.id, t.name)}
-                      className="rounded-lg p-1.5 text-gray-300 hover:bg-rose-50 hover:text-status-danger"
-                      aria-label="Delete task"
-                    >
-                      <IconTrash size={15} />
-                    </button>
-                  </div>
+                  {canManage && (
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <select
+                        value={t.status}
+                        className="rounded-lg border border-gray-200 px-2 py-1 text-xs"
+                        onChange={(e) => changeTaskStatus(t.id, e.target.value as "ACTIVE" | "INACTIVE")}
+                      >
+                        <option value="ACTIVE">Active</option>
+                        <option value="INACTIVE">Inactive</option>
+                      </select>
+                      <button
+                        onClick={() => removeTask(t.id, t.name)}
+                        className="rounded-lg p-1.5 text-gray-300 hover:bg-rose-50 hover:text-status-danger"
+                        aria-label="Delete task"
+                      >
+                        <IconTrash size={15} />
+                      </button>
+                    </div>
+                  )}
                 </div>
               ))}
               {taskError && <p className="text-xs text-status-danger">{taskError}</p>}
-              <div className="flex items-center gap-2 pt-2">
-                <input
-                  value={newTaskName}
-                  onChange={(e) => setNewTaskName(e.target.value)}
-                  placeholder="New task name…"
-                  className="input flex-1"
-                />
-                <input
-                  type="number"
-                  min={0}
-                  value={newTaskHours}
-                  onChange={(e) => setNewTaskHours(e.target.value)}
-                  placeholder="Hours"
-                  className="input w-24"
-                />
-                <label className="flex shrink-0 items-center gap-1.5 text-xs text-gray-600">
+              {canManage && (
+                <div className="flex items-center gap-2 pt-2">
                   <input
-                    type="checkbox"
-                    checked={newTaskBillable}
-                    onChange={(e) => setNewTaskBillable(e.target.checked)}
-                    className="h-4 w-4 rounded border-gray-300"
+                    value={newTaskName}
+                    onChange={(e) => setNewTaskName(e.target.value)}
+                    placeholder="New task name…"
+                    className="input flex-1"
                   />
-                  Billable
-                </label>
-                <button
-                  onClick={() => {
-                    if (!newTaskName.trim()) return;
-                    createTask.mutate(
-                      {
-                        projectId: project.id,
-                        name: newTaskName.trim(),
-                        billable: newTaskBillable,
-                        estimatedHours: newTaskHours === "" ? undefined : Number(newTaskHours),
-                      },
-                      {
-                        onSuccess: () => {
-                          setNewTaskName("");
-                          setNewTaskHours("");
-                          setNewTaskBillable(true);
+                  <input
+                    type="number"
+                    min={0}
+                    value={newTaskHours}
+                    onChange={(e) => setNewTaskHours(e.target.value)}
+                    placeholder="Hours"
+                    className="input w-24"
+                  />
+                  <label className="flex shrink-0 items-center gap-1.5 text-xs text-gray-600">
+                    <input
+                      type="checkbox"
+                      checked={newTaskBillable}
+                      onChange={(e) => setNewTaskBillable(e.target.checked)}
+                      className="h-4 w-4 rounded border-gray-300"
+                    />
+                    Billable
+                  </label>
+                  <button
+                    onClick={() => {
+                      if (!newTaskName.trim()) return;
+                      setTaskError(null);
+                      createTask.mutate(
+                        {
+                          projectId: project.id,
+                          name: newTaskName.trim(),
+                          billable: newTaskBillable,
+                          estimatedHours: newTaskHours === "" ? undefined : Number(newTaskHours),
                         },
-                      }
-                    );
-                  }}
-                  className="btn-primary shrink-0 px-3"
-                >
-                  <IconPlus size={16} />
-                </button>
-              </div>
+                        {
+                          onSuccess: () => {
+                            setNewTaskName("");
+                            setNewTaskHours("");
+                            setNewTaskBillable(true);
+                          },
+                          onError: (err) => setTaskError(getApiErrorMessage(err)),
+                        }
+                      );
+                    }}
+                    className="btn-primary shrink-0 px-3"
+                  >
+                    <IconPlus size={16} />
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

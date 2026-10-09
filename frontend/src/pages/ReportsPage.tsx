@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   CartesianGrid,
   Cell,
@@ -23,6 +23,7 @@ import { LoadingBlock } from "../components/common/Spinner";
 import { ErrorState } from "../components/common/ErrorState";
 import { EmptyState } from "../components/common/EmptyState";
 import { ProgressBar } from "../components/common/ProgressBar";
+import { Pagination } from "../components/common/Pagination";
 import { Modal } from "../components/common/Modal";
 import { Spinner } from "../components/common/Spinner";
 import { IconBarChart, IconDownload } from "../components/common/icons";
@@ -399,31 +400,44 @@ function ClientAuditSection({
  * Column labels/cell formatting mirror services/pdfTable.ts exactly, so the
  * on-screen preview and the PDF/Excel/CSV export always agree.
  */
+const REPORT_PAGE_SIZE = 25;
+
 function GenericReportTable({ rows }: { rows: Record<string, unknown>[] }) {
   const headers = Object.keys(rows[0] ?? {});
+  // Exports (PDF/Excel/CSV) and the on-screen preview intentionally share
+  // the same full, unfiltered `rows` — only how this table *displays* them
+  // is paginated, so a large report (Audit Trail especially) isn't one huge
+  // scroll-to-see-everything table on screen.
+  const [page, setPage] = useState(1);
+  useEffect(() => setPage(1), [rows]);
+  const pageRows = rows.slice((page - 1) * REPORT_PAGE_SIZE, page * REPORT_PAGE_SIZE);
+
   return (
-    <table className="w-full min-w-[640px]">
-      <thead>
-        <tr className="border-b border-gray-100 text-left text-xs font-semibold uppercase tracking-wide text-gray-400">
-          {headers.map((h) => (
-            <th key={h} className="whitespace-nowrap px-4 py-3">
-              {humanizeHeader(h)}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row, i) => (
-          <tr key={i} className="border-b border-gray-50 last:border-0">
+    <>
+      <table className="w-full min-w-[640px]">
+        <thead>
+          <tr className="border-b border-gray-100 text-left text-xs font-semibold uppercase tracking-wide text-gray-400">
             {headers.map((h) => (
-              <td key={h} className="whitespace-nowrap px-4 py-3 text-sm text-gray-600">
-                {formatReportCell(row[h])}
-              </td>
+              <th key={h} className="whitespace-nowrap px-4 py-3">
+                {humanizeHeader(h)}
+              </th>
             ))}
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {pageRows.map((row, i) => (
+            <tr key={i} className="border-b border-gray-50 last:border-0">
+              {headers.map((h) => (
+                <td key={h} className="whitespace-nowrap px-4 py-3 text-sm text-gray-600">
+                  {formatReportCell(row[h])}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {rows.length > REPORT_PAGE_SIZE && <Pagination page={page} pageSize={REPORT_PAGE_SIZE} total={rows.length} onPageChange={setPage} />}
+    </>
   );
 }
 
