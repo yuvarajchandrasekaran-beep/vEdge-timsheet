@@ -6,6 +6,25 @@ All notable changes to TimeSync are recorded here, newest first.
 
 ---
 
+## v1.4.0 — 2026-10-09
+
+Follow-up pass on the 6 Oct QA log's remaining "Enquiry" items, plus one new standing feature.
+
+**New: a standing "Time Off & Admin" project.** There was previously no answer to "how do I log a leave day?" short of picking an unrelated project. Every employee (existing, backfilled; new, automatic from here on) is now a member of a non-billable, never-expiring project with PTO / Jury Duty / Meeting / Admin tasks — single-create and bulk-imported users are enrolled the moment they're created.
+
+**New: Approvals > All Timesheets.** A Project Admin or HR/Super Admin can now search any in-scope person's (or multiple people's) timesheets by status and date range, including past, already-decided periods — not just what's currently sitting in their own Pending/Approved/Returned queue. Scoped server-side: Super Admin/HR Admin see everyone, a Project Admin sees only people who share a project they administer.
+
+**Fixes**
+- Daily view's submit button used a native, unstyled browser confirm and was labeled "Submit week"; now uses the same confirmation modal as Week View and is simply labeled "Submit."
+- Schedule Report's Cancel button bypassed the form-reset logic, and even the already-fixed paths never cleared the cadence/recipients fields — a reopened "new" report still showed the last one's values. Both now reset fully.
+- The Map Columns step's dropdowns were display-only (no `onChange`, nothing read the selection) — a correction there never stuck and never changed what actually got imported. Now controlled and genuinely applied at commit time.
+- Removed the in-page Users/Projects toggle on the Bulk Upload wizard — each entry point (from the Users screen or the Projects screen) now only ever runs its own import, instead of being able to wander into the other type mid-flow.
+- A project's **Edit** and **Members** row actions opened the identical modal, just defaulting to a different starting tab, with nothing stopping you from reaching every other tab from either one. **Members** now opens a focused, members-only dialog; **Edit** still opens the full modal.
+
+**Confirmed already correct (no change needed):** duplicate delegate+date-range rejection, a holiday with the same name but a different date (intentionally still allowed — only an exact name+date duplicate is blocked), and approval notifications including the timesheet code.
+
+---
+
 ## v1.3.0 — 2026-10-09
 
 QA retest log (6 Oct) — approvals visibility, delegation eligibility, project permissions, bulk import mapping, report pagination.

@@ -27,20 +27,28 @@ type DetailTab = "overview" | "tasks" | "members";
 export function ProjectDetailModal({
   projectId,
   initialTab = "overview",
+  restrictToTab,
   onClose,
 }: {
   projectId: string | null;
   initialTab?: DetailTab;
+  /** When set, this is the only tab shown — no switcher, no way to reach
+   * Overview/Tasks from here. Used by the Members row action so it's a
+   * focused "manage the team" dialog, genuinely distinct from Edit (which
+   * opens the full modal, all three tabs, starting on Overview) rather than
+   * the two being two buttons for the same thing with a different starting
+   * tab (see Query Log 3 #72). */
+  restrictToTab?: DetailTab;
   onClose: () => void;
 }) {
-  const [tab, setTab] = useState<DetailTab>(initialTab);
+  const [tab, setTab] = useState<DetailTab>(restrictToTab ?? initialTab);
   // This modal is a single long-lived instance in ProjectsPage — only its
   // `projectId` prop changes as different rows are opened, so it never
   // unmounts between them. Without resetting these here, an unsaved draft
   // (a half-typed task name, a pending error message) from one project would
   // keep showing after switching straight to a different project's modal.
   useEffect(() => {
-    setTab(initialTab);
+    setTab(restrictToTab ?? initialTab);
     setNewTaskName("");
     setNewTaskHours("");
     setNewTaskBillable(true);
@@ -48,7 +56,7 @@ export function ProjectDetailModal({
     setMemberError(null);
     setTaskError(null);
     setOverviewError(null);
-  }, [initialTab, projectId]);
+  }, [initialTab, restrictToTab, projectId]);
 
   const projectQuery = useProject(projectId ?? undefined);
   const updateProject = useUpdateProject();
@@ -121,19 +129,21 @@ export function ProjectDetailModal({
         <ErrorState error={projectQuery.error} onRetry={() => projectQuery.refetch()} />
       ) : project ? (
         <div>
-          <div className="mb-4 flex gap-1 rounded-xl bg-gray-100 p-1">
-            {(["overview", "tasks", "members"] as DetailTab[]).map((t) => (
-              <button
-                key={t}
-                onClick={() => setTab(t)}
-                className={`flex-1 rounded-lg px-3 py-1.5 text-sm font-medium capitalize transition-colors ${
-                  tab === t ? "bg-white text-gray-900 shadow-soft" : "text-gray-500 hover:text-gray-700"
-                }`}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
+          {!restrictToTab && (
+            <div className="mb-4 flex gap-1 rounded-xl bg-gray-100 p-1">
+              {(["overview", "tasks", "members"] as DetailTab[]).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setTab(t)}
+                  className={`flex-1 rounded-lg px-3 py-1.5 text-sm font-medium capitalize transition-colors ${
+                    tab === t ? "bg-white text-gray-900 shadow-soft" : "text-gray-500 hover:text-gray-700"
+                  }`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          )}
 
           {tab === "overview" && (
             <div className="space-y-4">

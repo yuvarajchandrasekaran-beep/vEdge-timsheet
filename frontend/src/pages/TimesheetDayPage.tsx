@@ -5,16 +5,17 @@ import { useMyTimesheet, useSaveTimesheetDraft, useSubmitTimesheet } from "../ho
 import { useProjects } from "../hooks/useProjects";
 import { useHolidayMap } from "../hooks/useHolidays";
 import { useDebouncedCallback } from "../hooks/useDebouncedCallback";
-import { getWeekStart } from "../utils/week";
+import { getWeekDays, getWeekEnd, getWeekStart } from "../utils/week";
 import { usePageHeader } from "../hooks/usePageHeader";
 import { DAILY_HOUR_LIMIT, validateCellHours, validateDayTotal } from "../utils/validation";
-import { formatHoursMinutes } from "../utils/format";
+import { formatHoursMinutes, formatWeekRange } from "../utils/format";
 import { LoadingBlock } from "../components/common/Spinner";
 import { ErrorState } from "../components/common/ErrorState";
 import { EmptyState } from "../components/common/EmptyState";
 import { AddProjectRowTypeahead, type TaskOption } from "../components/timesheet/AddProjectRowTypeahead";
 import { CommentOverlay } from "../components/timesheet/CommentOverlay";
 import { TimesheetViewSwitcher } from "../components/timesheet/TimesheetViewSwitcher";
+import { SubmitConfirmModal } from "../components/timesheet/SubmitConfirmModal";
 import { IconArrowLeft, IconCheck, IconCopy, IconTrash } from "../components/common/icons";
 import type { TimesheetEntryInput } from "../hooks/useTimesheets";
 import { useToast } from "../components/common/Toast";
@@ -49,6 +50,7 @@ export default function TimesheetDayPage() {
 
   const [lines, setLines] = useState<DayLine[]>([]);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [submitModalOpen, setSubmitModalOpen] = useState(false);
   const hydratedKey = useRef<string | null>(null);
 
   useEffect(() => {
@@ -188,6 +190,30 @@ export default function TimesheetDayPage() {
   const dayValidation = validateDayTotal(dayTotalHours);
   const remaining = Math.max(0, DAILY_HOUR_LIMIT - dayTotalHours);
 
+  // Submitting from here submits the *whole week* this day belongs to (same
+  // endpoint as Week View's own Submit), so the confirmation needs that
+  // week's real entries, not just today's — timesheet.entries already has
+  // them, since useMyTimesheet(weekStart) always fetches the full week.
+  const weekDays = useMemo(() => getWeekDays(weekStart), [weekStart]);
+  const weekDayTotals = weekDays.map((d) =>
+    (timesheet?.entries ?? []).filter((e) => e.entryDate === d.date).reduce((sum, e) => sum + e.hours, 0)
+  );
+  const weekTotalHours = weekDayTotals.reduce((sum, v) => sum + v, 0);
+  const serverIssues = timesheet?.validation ?? [];
+  const submitBlockingIssues = [...new Set(serverIssues.filter((i) => i.severity === "blocking").map((i) => i.message))];
+  const submitWarnings = useMemo(() => {
+    const msgs: string[] = [];
+    weekDays.forEach((d, i) => {
+      const v = validateDayTotal(weekDayTotals[i]);
+      if (v.level === "warning" && v.message) msgs.push(`${d.label}: ${v.message}`);
+    });
+    for (const issue of serverIssues) {
+      if (issue.severity === "warning" && !msgs.includes(issue.message)) msgs.push(issue.message);
+    }
+    return msgs;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekDays, timesheet]);
+
   if (timesheetQuery.isLoading || projectsQuery.isLoading) return <LoadingBlock label="Loading day…" />;
   if (timesheetQuery.isError) return <ErrorState error={timesheetQuery.error} onRetry={() => timesheetQuery.refetch()} />;
 
@@ -230,30 +256,13 @@ export default function TimesheetDayPage() {
           )}
           {isEditable && timesheet && (
             <button
-              onClick={() => {
-                const issues = timesheet.validation ?? [];
-                const blocking = issues.filter((i) => i.severity === "blocking");
-                if (blocking.length > 0) {
-                  showToast(blocking[0].message, "error");
-                  return;
-                }
-                const warningMessages = [...new Set(issues.filter((i) => i.severity === "warning").map((i) => i.message))];
-                const warningText = warningMessages.length ? `\n\nPlease note:\n- ${warningMessages.join("\n- ")}` : "";
-                if (!confirm(`Submit this whole week for approval? You won't be able to edit it once it's approved.${warningText}`)) return;
-                submitMutation.mutate(
-                  { id: timesheet.id, weekStart },
-                  {
-                    onSuccess: () => showToast("Timesheet submitted for approval.", "success"),
-                    onError: (err) => showToast(getApiErrorMessage(err, "Couldn't submit this timesheet."), "error"),
-                  }
-                );
-              }}
+              onClick={() => setSubmitModalOpen(true)}
               disabled={submitMutation.isPending}
               className="flex items-center gap-1.5 rounded-xl bg-brand-primary px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-primary-dark disabled:opacity-60"
               title="Submits the entire week this day belongs to, same as Week View's Submit"
             >
               <IconCheck size={15} />
-              Submit week
+              Submit
             </button>
           )}
         </div>
@@ -352,6 +361,32 @@ export default function TimesheetDayPage() {
           {saveStatus === "idle" && "Autosaves as you type"}
         </span>
       </div>
+
+      {timesheet && (
+        <SubmitConfirmModal
+          open={submitModalOpen}
+          onClose={() => setSubmitModalOpen(false)}
+          submitting={submitMutation.isPending}
+          days={weekDays}
+          dayTotals={weekDayTotals}
+          weekTotalHours={weekTotalHours}
+          warnings={submitWarnings}
+          blockingIssues={submitBlockingIssues}
+          weekLabel={formatWeekRange(weekStart, getWeekEnd(weekStart))}
+          onConfirm={() =>
+            submitMutation.mutate(
+              { id: timesheet.id, weekStart },
+              {
+                onSuccess: () => {
+                  setSubmitModalOpen(false);
+                  showToast("Timesheet submitted for approval.", "success");
+                },
+                onError: (err) => showToast(getApiErrorMessage(err, "Couldn't submit this timesheet."), "error"),
+              }
+            )
+          }
+        />
+      )}
     </div>
   );
 }

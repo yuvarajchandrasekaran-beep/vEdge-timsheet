@@ -1,25 +1,28 @@
 import { useState } from "react";
 import { useApprovalsPending, useApproveTimesheet, useBulkApprove, useBulkReject, useRejectTimesheet } from "../hooks/useApprovals";
+import { useTimesheetSearch } from "../hooks/useTimesheets";
 import { useDepartments } from "../hooks/useDepartments";
+import { useUsers } from "../hooks/useUsers";
 import { usePageHeader } from "../hooks/usePageHeader";
 import { useAuth } from "../hooks/useAuth";
 import { Avatar } from "../components/common/Avatar";
-import { Badge } from "../components/common/Badge";
+import { Badge, StatusBadge } from "../components/common/Badge";
 import { LoadingBlock } from "../components/common/Spinner";
 import { ErrorState } from "../components/common/ErrorState";
 import { EmptyState } from "../components/common/EmptyState";
 import { Pagination } from "../components/common/Pagination";
 import { Modal } from "../components/common/Modal";
+import { UserMultiSelectTypeahead } from "../components/common/UserMultiSelectTypeahead";
 import { DelegationModal } from "../components/approvals/DelegationModal";
 import { TimesheetDetailModal } from "../components/approvals/TimesheetDetailModal";
-import { ROLE_LABELS } from "../types";
+import { ROLE_LABELS, type TimesheetStatus } from "../types";
 import { formatDateTime, formatHoursMinutes, formatWeekRange } from "../utils/format";
 import { IconCheck, IconCheckSquare, IconEye, IconSearch, IconUsers, IconX } from "../components/common/icons";
 import { useToast } from "../components/common/Toast";
 import { getApiErrorMessage } from "../api/client";
 
-type Tab = "PENDING" | "APPROVED" | "REJECTED";
-const TABS: { key: Tab; label: string }[] = [
+type Tab = "PENDING" | "APPROVED" | "REJECTED" | "ALL";
+const QUEUE_TABS: { key: Exclude<Tab, "ALL">; label: string }[] = [
   { key: "PENDING", label: "Pending" },
   { key: "APPROVED", label: "Approved" },
   { key: "REJECTED", label: "Returned" },
@@ -45,15 +48,40 @@ export default function ApprovalsPage() {
   // null for a bulk reject, since there's no single timesheet/user to name).
   const [bulkRejectOpen, setBulkRejectOpen] = useState(false);
 
+  // All Timesheets (see Query Log 3 #67) — a separate lookup, not one more
+  // view of the Pending/Approved/Returned queue, so it gets its own filter
+  // state rather than overloading search/department/minPendingDays above.
+  const canViewAllTimesheets = hasRole("SUPER_ADMIN", "HR_ADMIN", "PROJECT_ADMIN");
+  const [allUserIds, setAllUserIds] = useState<string[]>([]);
+  const [allStatus, setAllStatus] = useState<TimesheetStatus | "">("");
+  const [allDateFrom, setAllDateFrom] = useState("");
+  const [allDateTo, setAllDateTo] = useState("");
+  const [allPage, setAllPage] = useState(1);
+
   const { data: departments } = useDepartments();
-  const query = useApprovalsPending({
-    status: tab,
-    page,
-    pageSize: PAGE_SIZE,
-    search: search || undefined,
-    department: department || undefined,
-    pendingDays: minPendingDays ? Number(minPendingDays) : undefined,
-  });
+  const query = useApprovalsPending(
+    {
+      status: tab === "ALL" ? "PENDING" : tab,
+      page,
+      pageSize: PAGE_SIZE,
+      search: search || undefined,
+      department: department || undefined,
+      pendingDays: minPendingDays ? Number(minPendingDays) : undefined,
+    },
+    tab !== "ALL"
+  );
+  const usersDirectory = useUsers({ page: 1, pageSize: 500 }, tab === "ALL" && canViewAllTimesheets);
+  const allQuery = useTimesheetSearch(
+    {
+      userIds: allUserIds,
+      status: allStatus || undefined,
+      dateFrom: allDateFrom || undefined,
+      dateTo: allDateTo || undefined,
+      page: allPage,
+      pageSize: PAGE_SIZE,
+    },
+    tab === "ALL" && canViewAllTimesheets
+  );
   const approveMutation = useApproveTimesheet();
   const rejectMutation = useRejectTimesheet();
   const bulkApprove = useBulkApprove();
@@ -97,6 +125,11 @@ export default function ApprovalsPage() {
     setSearch("");
     setDepartment("");
     setMinPendingDays("");
+    setAllUserIds([]);
+    setAllStatus("");
+    setAllDateFrom("");
+    setAllDateTo("");
+    setAllPage(1);
   }
 
   usePageHeader("Approvals", "Project Admin review of your projects' submitted timesheets");
@@ -106,7 +139,7 @@ export default function ApprovalsPage() {
       <div className="flex-1 rounded-2xl bg-white shadow-soft ring-1 ring-gray-100">
         <div className="flex flex-col gap-3 border-b border-gray-100 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex gap-1 rounded-xl bg-gray-100 p-1">
-            {TABS.map((t) => (
+            {QUEUE_TABS.map((t) => (
               <button
                 key={t.key}
                 onClick={() => changeTab(t.key)}
@@ -117,6 +150,16 @@ export default function ApprovalsPage() {
                 {t.label}
               </button>
             ))}
+            {canViewAllTimesheets && (
+              <button
+                onClick={() => changeTab("ALL")}
+                className={`rounded-lg px-3.5 py-1.5 text-sm font-medium transition-colors ${
+                  tab === "ALL" ? "bg-white text-gray-900 shadow-soft" : "text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                All Timesheets
+              </button>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
@@ -166,6 +209,8 @@ export default function ApprovalsPage() {
           </div>
         </div>
 
+        {tab !== "ALL" && (
+        <>
         <div className="flex flex-col gap-3 border-b border-gray-100 p-4 sm:flex-row sm:items-center">
           <div className="relative flex-1">
             <IconSearch size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -327,6 +372,38 @@ export default function ApprovalsPage() {
             <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />
           </>
         )}
+        </>
+        )}
+
+        {tab === "ALL" && canViewAllTimesheets && (
+          <AllTimesheetsPanel
+            userDirectory={(usersDirectory.data?.data ?? []).map((u) => ({ id: u.id, name: u.name, department: u.department }))}
+            selectedUserIds={allUserIds}
+            onUserIdsChange={(ids) => {
+              setAllUserIds(ids);
+              setAllPage(1);
+            }}
+            status={allStatus}
+            onStatusChange={(s) => {
+              setAllStatus(s);
+              setAllPage(1);
+            }}
+            dateFrom={allDateFrom}
+            onDateFromChange={(v) => {
+              setAllDateFrom(v);
+              setAllPage(1);
+            }}
+            dateTo={allDateTo}
+            onDateToChange={(v) => {
+              setAllDateTo(v);
+              setAllPage(1);
+            }}
+            page={allPage}
+            onPageChange={setAllPage}
+            query={allQuery}
+            onView={setDetailId}
+          />
+        )}
       </div>
 
       <Modal
@@ -411,5 +488,160 @@ export default function ApprovalsPage() {
       <DelegationModal open={delegationModalOpen} onClose={() => setDelegationModalOpen(false)} />
       <TimesheetDetailModal timesheetId={detailId} onClose={() => setDetailId(null)} />
     </div>
+  );
+}
+
+const TIMESHEET_STATUSES: TimesheetStatus[] = ["DRAFT", "SUBMITTED", "APPROVED", "REJECTED", "RECALLED"];
+
+/**
+ * Look up any in-scope user's (or users') timesheets regardless of status —
+ * current or past — rather than only what's currently sitting in the
+ * caller's own Pending/Approved/Returned queue. Addresses Query Log 3 #67:
+ * a Project Admin had no way to check "what did this person submit last
+ * month" short of asking them directly.
+ */
+function AllTimesheetsPanel({
+  userDirectory,
+  selectedUserIds,
+  onUserIdsChange,
+  status,
+  onStatusChange,
+  dateFrom,
+  onDateFromChange,
+  dateTo,
+  onDateToChange,
+  page,
+  onPageChange,
+  query,
+  onView,
+}: {
+  userDirectory: { id: string; name: string; department?: string }[];
+  selectedUserIds: string[];
+  onUserIdsChange: (ids: string[]) => void;
+  status: TimesheetStatus | "";
+  onStatusChange: (s: TimesheetStatus | "") => void;
+  dateFrom: string;
+  onDateFromChange: (v: string) => void;
+  dateTo: string;
+  onDateToChange: (v: string) => void;
+  page: number;
+  onPageChange: (p: number) => void;
+  query: ReturnType<typeof useTimesheetSearch>;
+  onView: (id: string) => void;
+}) {
+  const rows = query.data?.data ?? [];
+  const total = query.data?.meta.total ?? 0;
+  const hasFilters = selectedUserIds.length > 0 || !!status || !!dateFrom || !!dateTo;
+
+  return (
+    <>
+      <div className="flex flex-col gap-3 border-b border-gray-100 p-4">
+        <UserMultiSelectTypeahead
+          users={userDirectory}
+          selectedIds={selectedUserIds}
+          onChange={onUserIdsChange}
+          placeholder="Search people by name… (leave blank for everyone you can see)"
+        />
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <select value={status} onChange={(e) => onStatusChange(e.target.value as TimesheetStatus | "")} className="input sm:w-44">
+            <option value="">Any status</option>
+            {TIMESHEET_STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {s.charAt(0) + s.slice(1).toLowerCase()}
+              </option>
+            ))}
+          </select>
+          <label className="flex items-center gap-2 text-sm text-gray-600">
+            From
+            <input type="date" value={dateFrom} onChange={(e) => onDateFromChange(e.target.value)} className="input" />
+          </label>
+          <label className="flex items-center gap-2 text-sm text-gray-600">
+            To
+            <input type="date" value={dateTo} onChange={(e) => onDateToChange(e.target.value)} className="input" />
+          </label>
+          {hasFilters && (
+            <button
+              onClick={() => {
+                onUserIdsChange([]);
+                onStatusChange("");
+                onDateFromChange("");
+                onDateToChange("");
+              }}
+              className="text-sm font-medium text-brand-primary hover:underline"
+            >
+              Clear filters
+            </button>
+          )}
+        </div>
+      </div>
+
+      {query.isLoading ? (
+        <LoadingBlock />
+      ) : query.isError ? (
+        <div className="p-4">
+          <ErrorState error={query.error} onRetry={() => query.refetch()} />
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="p-4">
+          <EmptyState
+            title="Nothing here"
+            description={hasFilters ? "No timesheets match these filters." : "Search for someone above, or pick a status/date range."}
+          />
+        </div>
+      ) : (
+        <>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[820px]">
+              <thead>
+                <tr className="border-b border-gray-100 text-left text-xs font-semibold uppercase tracking-wide text-gray-400">
+                  <th className="px-4 py-3">Employee</th>
+                  <th className="px-4 py-3">Week</th>
+                  <th className="px-4 py-3">Total hours</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">Submitted on</th>
+                  <th className="px-4 py-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((item) => (
+                  <tr key={item.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/60">
+                    <td className="px-4 py-5">
+                      <div className="flex items-center gap-3">
+                        <Avatar name={item.userName} size="md" />
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">{item.userName}</p>
+                          <p className="text-xs text-gray-500">
+                            {ROLE_LABELS[item.userRole]} · {item.department}
+                          </p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-5 text-sm text-gray-600">{formatWeekRange(item.weekStart, item.weekEnd)}</td>
+                    <td className="px-4 py-5 text-sm font-semibold text-gray-900">{formatHoursMinutes(item.totalHours)}</td>
+                    <td className="px-4 py-5">
+                      <StatusBadge status={item.status} kind="timesheet" />
+                    </td>
+                    <td className="px-4 py-5 text-sm text-gray-600">{item.submittedAt ? formatDateTime(item.submittedAt) : "—"}</td>
+                    <td className="px-4 py-5">
+                      <div className="flex items-center justify-end">
+                        <button
+                          onClick={() => onView(item.id)}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg bg-gray-50 text-gray-500 hover:bg-gray-100"
+                          aria-label="View details"
+                          title="View details"
+                        >
+                          <IconEye size={16} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={onPageChange} />
+        </>
+      )}
+    </>
   );
 }

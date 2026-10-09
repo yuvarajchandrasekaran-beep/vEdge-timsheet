@@ -460,10 +460,14 @@ function ScheduleReportModal({ open, onClose, reportKey }: { open: boolean; onCl
   // "Close" button below — the footer button used to call the raw `onClose`
   // prop directly, which never reset `done`, so reopening the modal (it's
   // always mounted, just hidden) showed the same stale confirmation screen
-  // instead of a fresh form until a full page reload remounted it.
+  // instead of a fresh form until a full page reload remounted it. Also
+  // resets the form fields themselves — `done` alone being reset still left
+  // the last report's cadence/recipients sitting in a "new" form.
   function handleClose() {
     onClose();
     setDone(false);
+    setCadence("WEEKLY");
+    setRecipients("");
   }
 
   return (
@@ -478,7 +482,7 @@ function ScheduleReportModal({ open, onClose, reportKey }: { open: boolean; onCl
           </button>
         ) : (
           <>
-            <button onClick={onClose} className="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100">
+            <button onClick={handleClose} className="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100">
               Cancel
             </button>
             <button

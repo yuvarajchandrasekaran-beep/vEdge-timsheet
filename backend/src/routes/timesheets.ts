@@ -9,9 +9,10 @@ import { validateEntries, validateWeekSubmission, hasRequiredComment, commentReq
 import { writeAuditLog } from "../utils/audit";
 import { notify } from "../services/notify";
 import { resolveApprover } from "../services/approvalRouting";
-import { TIMESHEET_STATUS } from "../constants/enums";
+import { TIMESHEET_STATUS, ROLES, PROJECT_MEMBER_ROLE } from "../constants/enums";
 import { buildWorkbookFromRows, rowsToCsv } from "../services/excel";
 import { timesheetCode } from "../utils/timesheetCode";
+import { paginationParams, paginated } from "../utils/pagination";
 
 const router = Router();
 
@@ -374,6 +375,95 @@ router.post(
     if (results.length === 0) throw ApiError.notFound("No prior period to copy from");
 
     res.json(await Promise.all(results.map((id) => serializeTimesheet(id))));
+  })
+);
+
+/**
+ * @swagger
+ * /timesheets:
+ *   get:
+ *     summary: Search any user's (or users') timesheets by status/date range — Super Admin and HR Admin see everyone, a Project Admin sees only people who share a project they administer, anyone else sees nothing (see Query Log 3 #67 — approvers had no way to look up a timesheet other than the current Pending/Approved/Returned queues, which only ever show what THEY personally need to act on or have acted on)
+ *     tags: [Timesheets]
+ *     security: [{ bearerAuth: [] }]
+ */
+router.get(
+  "/",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const { page, pageSize, skip, take } = paginationParams(req);
+    const userIdsParam = req.query.userIds
+      ? String(req.query.userIds)
+          .split(",")
+          .map((s) => Number(s.trim()))
+          .filter((n) => !isNaN(n))
+      : undefined;
+    const status = req.query.status ? String(req.query.status).toUpperCase() : undefined;
+    const dateFrom = req.query.dateFrom ? new Date(String(req.query.dateFrom)) : undefined;
+    const dateTo = req.query.dateTo ? new Date(String(req.query.dateTo)) : undefined;
+
+    // null = no restriction (Super Admin / HR Admin). Otherwise, only
+    // people who share at least one project this caller administers —
+    // global role isn't the right signal here either (see
+    // isProjectAdminAnywhere's docstring in approvalRouting.ts).
+    let allowedUserIds: number[] | null = null;
+    if (req.user!.role !== ROLES.SUPER_ADMIN && req.user!.role !== ROLES.HR_ADMIN) {
+      const adminOf = await prisma.projectMember.findMany({
+        where: { userId: req.user!.id, roleOnProject: PROJECT_MEMBER_ROLE.PROJECT_ADMIN },
+        select: { projectId: true },
+      });
+      const projectIds = adminOf.map((p) => p.projectId);
+      const teammates = projectIds.length
+        ? await prisma.projectMember.findMany({ where: { projectId: { in: projectIds } }, select: { userId: true } })
+        : [];
+      allowedUserIds = [...new Set(teammates.map((m) => m.userId))];
+    }
+
+    const effectiveUserIds = userIdsParam ? (allowedUserIds ? userIdsParam.filter((id) => allowedUserIds!.includes(id)) : userIdsParam) : allowedUserIds;
+
+    const where: Prisma.TimesheetWhereInput = {
+      // Excludes empty placeholder drafts (auto-created the moment a week is
+      // opened, before anything's logged) from this browse/audit view.
+      entries: { some: {} },
+    };
+    if (effectiveUserIds) where.userId = { in: effectiveUserIds };
+    if (status) where.status = status;
+    if (dateFrom || dateTo) {
+      where.weekStartDate = {};
+      if (dateFrom) (where.weekStartDate as Prisma.DateTimeFilter).gte = dateFrom;
+      if (dateTo) (where.weekStartDate as Prisma.DateTimeFilter).lte = dateTo;
+    }
+
+    const [total, timesheets] = await Promise.all([
+      prisma.timesheet.count({ where }),
+      prisma.timesheet.findMany({
+        where,
+        include: { user: { include: { role: true, department: true } }, entries: true },
+        orderBy: { weekStartDate: "desc" },
+        skip,
+        take,
+      }),
+    ]);
+
+    res.json(
+      paginated(
+        timesheets.map((t) => ({
+          id: t.id,
+          timesheetCode: timesheetCode(t.id, t.weekStartDate),
+          userId: t.userId,
+          userName: t.user.name,
+          userRole: t.user.role.name,
+          department: t.user.department?.name ?? "—",
+          weekStart: toIsoDate(t.weekStartDate),
+          weekEnd: toIsoDate(addDays(t.weekStartDate, 6)),
+          totalHours: t.entries.reduce((sum, e) => sum + e.hours, 0),
+          status: t.status,
+          submittedAt: t.submittedAt,
+        })),
+        total,
+        page,
+        pageSize
+      )
+    );
   })
 );
 

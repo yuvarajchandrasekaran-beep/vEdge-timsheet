@@ -11,6 +11,7 @@ import { writeAuditLog } from "../utils/audit";
 import { ROLES } from "../constants/enums";
 import { buildTemplateWorkbook, readFirstSheetRows } from "../services/excel";
 import { validateUserRows, UserImportRow } from "../services/userImport";
+import { ensureDefaultProject, enrollInDefaultProject } from "../services/defaultProject";
 
 const router = Router();
 const DEFAULT_PASSWORD = "Password123!";
@@ -134,6 +135,8 @@ router.post(
       },
       include: { role: true, department: true, manager: true },
     });
+    const { id: defaultProjectId } = await ensureDefaultProject();
+    await enrollInDefaultProject(user.id, defaultProjectId);
 
     await writeAuditLog({ actorId: req.user!.id, impersonatedById: req.user!.impersonatedBy ?? null, entityType: "User", entityId: user.id, action: "Create", after: serializeUser(user) });
     res.status(201).json(serializeUser(user));
@@ -247,6 +250,7 @@ router.post(
     const body = commitSchema.parse(req.body);
     let successRows = 0;
     const errors: { row: number; errors: string[] }[] = [];
+    const { id: defaultProjectId } = await ensureDefaultProject();
 
     for (const [idx, data] of body.rows.entries()) {
       try {
@@ -292,6 +296,7 @@ router.post(
             status: statusValue,
           },
         });
+        await enrollInDefaultProject(user.id, defaultProjectId);
         await writeAuditLog({ actorId: req.user!.id, impersonatedById: req.user!.impersonatedBy ?? null, entityType: "User", entityId: user.id, action: "BulkImport", after: user });
         successRows += 1;
       } catch (e: any) {

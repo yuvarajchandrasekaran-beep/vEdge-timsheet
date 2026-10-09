@@ -48,7 +48,7 @@ export default function ProjectsPage() {
   const [page, setPage] = useState(1);
   const [newModalOpen, setNewModalOpen] = useState(false);
   const [newClientModalOpen, setNewClientModalOpen] = useState(false);
-  const [detail, setDetail] = useState<{ id: string; tab: "overview" | "tasks" | "members" } | null>(null);
+  const [detail, setDetail] = useState<{ id: string; tab: "overview" | "tasks" | "members"; restrict?: boolean } | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const { data: clients } = useClients(canViewClients);
@@ -231,7 +231,11 @@ export default function ProjectsPage() {
                                   read-only. Removed rather than threading a
                                   read-only mode through ProjectDetailModal. */}
                               <RowAction icon={<IconEdit size={15} />} label="Edit" onClick={() => setDetail({ id: p.id, tab: "overview" })} />
-                              <RowAction icon={<IconUsers size={15} />} label="Members" onClick={() => setDetail({ id: p.id, tab: "members" })} />
+                              <RowAction
+                                icon={<IconUsers size={15} />}
+                                label="Members"
+                                onClick={() => setDetail({ id: p.id, tab: "members", restrict: true })}
+                              />
                               {canDelete && (
                                 <RowAction
                                   icon={<IconTrash size={15} />}
@@ -317,7 +321,12 @@ export default function ProjectsPage() {
         }}
       />
       <NewClientModal open={newClientModalOpen} onClose={() => setNewClientModalOpen(false)} />
-      <ProjectDetailModal projectId={detail?.id ?? null} initialTab={detail?.tab} onClose={() => setDetail(null)} />
+      <ProjectDetailModal
+        projectId={detail?.id ?? null}
+        initialTab={detail?.tab}
+        restrictToTab={detail?.restrict ? detail.tab : undefined}
+        onClose={() => setDetail(null)}
+      />
     </div>
   );
 }

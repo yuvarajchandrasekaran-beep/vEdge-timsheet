@@ -183,6 +183,23 @@ export interface Approval {
   actedAt?: string | null;
 }
 
+/** A row from GET /timesheets (the cross-user search/lookup used by
+ * Approvals > All Timesheets) — any status, any week, past or current,
+ * scoped server-side to whoever the caller is actually allowed to see. */
+export interface TimesheetSearchRow {
+  id: string;
+  timesheetCode: string;
+  userId: string;
+  userName: string;
+  userRole: RoleName;
+  department: string;
+  weekStart: string;
+  weekEnd: string;
+  totalHours: number;
+  status: TimesheetStatus;
+  submittedAt: string | null;
+}
+
 export interface ApprovalQueueItem {
   timesheetId: string;
   userId: string;

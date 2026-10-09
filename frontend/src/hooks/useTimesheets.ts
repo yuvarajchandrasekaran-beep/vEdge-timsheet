@@ -1,6 +1,6 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient, downloadBlob } from "../api/client";
-import type { Timesheet } from "../types";
+import type { ListResponse, Timesheet, TimesheetSearchRow, TimesheetStatus } from "../types";
 
 export function useMyTimesheet(weekStart: string) {
   return useQuery({
@@ -110,6 +110,31 @@ export function useTimesheetDetail(id: string | undefined) {
       return res.data;
     },
     enabled: !!id,
+  });
+}
+
+export interface TimesheetSearchParams {
+  userIds?: string[];
+  status?: TimesheetStatus | "";
+  dateFrom?: string;
+  dateTo?: string;
+  page: number;
+  pageSize: number;
+}
+
+/** Backs Approvals > All Timesheets — look up any in-scope user's (or
+ * users') timesheets regardless of status, current or past (see
+ * GET /timesheets in routes/timesheets.ts for the server-side scoping). */
+export function useTimesheetSearch(params: TimesheetSearchParams, enabled = true) {
+  return useQuery({
+    queryKey: ["timesheets", "search", params],
+    queryFn: async () => {
+      const res = await apiClient.get<ListResponse<TimesheetSearchRow>>("/timesheets", {
+        params: { ...params, userIds: params.userIds?.length ? params.userIds.join(",") : undefined },
+      });
+      return res.data;
+    },
+    enabled,
   });
 }
 

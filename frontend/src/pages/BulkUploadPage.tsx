@@ -64,7 +64,7 @@ const PROJECT_FIELDS = [
 
 export default function BulkUploadPage() {
   usePageHeader("Bulk Upload (Excel)");
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const type = (searchParams.get("type") === "projects" ? "projects" : "users") as ImportType;
 
@@ -73,6 +73,12 @@ export default function BulkUploadPage() {
   const [batch, setBatch] = useState<ImportBatch | null>(null);
   const [includedRows, setIncludedRows] = useState<Set<number>>(new Set());
   const [committed, setCommitted] = useState<{ count: number } | null>(null);
+  // detected column name -> target field name, or "__ignore". Previously the
+  // Map Columns dropdowns were uncontrolled (defaultValue only, no onChange),
+  // so a remapping never actually stuck anywhere — it reset if you left and
+  // came back to the step, and was never applied to what got committed
+  // either. Both read as "my mapping doesn't save" (Query Log 3 #79).
+  const [columnMapping, setColumnMapping] = useState<Record<string, string>>({});
 
   const userDryRun = useUserImportDryRun();
   const projectDryRun = useProjectImportDryRun();
@@ -83,20 +89,17 @@ export default function BulkUploadPage() {
   const commit = type === "users" ? userCommit : projectCommit;
   const fieldLabels = type === "users" ? USER_FIELDS : PROJECT_FIELDS;
 
-  function setType(next: ImportType) {
-    setSearchParams({ type: next });
-    setStep(1);
-    setFile(null);
-    setBatch(null);
-    setCommitted(null);
-  }
-
   function handleNextFromUpload() {
     if (!file) return;
     dryRun.mutate(file, {
       onSuccess: (data) => {
         setBatch(data);
         setIncludedRows(new Set(data.rows.filter((r) => r.status !== "ERROR").map((r) => r.rowNumber)));
+        const defaults: Record<string, string> = {};
+        for (const col of Object.keys(data.rows[0]?.data ?? {})) {
+          defaults[col] = fieldLabels.includes(col) ? col : "__ignore";
+        }
+        setColumnMapping(defaults);
         setStep(2);
       },
     });
@@ -104,7 +107,23 @@ export default function BulkUploadPage() {
 
   function handleCommit() {
     if (!batch) return;
-    const rows = batch.rows.filter((r) => includedRows.has(r.rowNumber)).map((r) => r.data);
+    // Apply the confirmed mapping — rename each row's keys from the file's
+    // own header to the field it's mapped to, dropping anything mapped to
+    // "Don't import this column". The importer validates by these exact
+    // field names, so this is what makes picking a different mapping (or
+    // fixing the auto-detected default) actually change what gets imported,
+    // instead of the dropdown being decorative.
+    const rows = batch.rows
+      .filter((r) => includedRows.has(r.rowNumber))
+      .map((r) => {
+        const mapped: Record<string, unknown> = {};
+        for (const [col, value] of Object.entries(r.data)) {
+          const target = columnMapping[col];
+          if (!target || target === "__ignore") continue;
+          mapped[target] = value;
+        }
+        return mapped;
+      });
     commit.mutate(
       { batchId: batch.batchId, rows },
       {
@@ -123,6 +142,7 @@ export default function BulkUploadPage() {
     setFile(null);
     setBatch(null);
     setCommitted(null);
+    setColumnMapping({});
   }
 
   return (
@@ -132,20 +152,16 @@ export default function BulkUploadPage() {
           <IconArrowLeft size={14} />
           Back
         </button>
-        <div className="flex gap-1 rounded-xl bg-gray-100 p-1">
-          {(["users", "projects"] as ImportType[]).map((t) => (
-            <button
-              key={t}
-              onClick={() => setType(t)}
-              className={clsx(
-                "rounded-lg px-3.5 py-1.5 text-sm font-medium capitalize transition-colors",
-                type === t ? "bg-white text-gray-900 shadow-soft" : "text-gray-500 hover:text-gray-700"
-              )}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
+        {/* Deliberately not a toggle — this page is reached from either the
+            Users or Projects section's own "Bulk Import" button, and stays
+            on that one entity type for the whole wizard. A Users/Projects
+            switcher here let someone wander from "bulk-import my users" into
+            "bulk-import projects" mid-flow, which was confusing enough on
+            its own to get reported (Query Log 3 #81) even before considering
+            that the two flows use different templates, fields and endpoints. */}
+        <Badge tone="neutral" className="capitalize">
+          {type}
+        </Badge>
       </div>
 
       <StepIndicator step={step} />
@@ -210,8 +226,15 @@ export default function BulkUploadPage() {
                             come back unchanged (the normal path) this is always an exact match.
                             Matching this way (instead of by position) means a reordered or
                             partial set of columns still lines up correctly instead of drifting
-                            out of sync with fieldLabels after the first unmatched column. */}
-                        <select defaultValue={fieldLabels.includes(col) ? col : "__ignore"} className="input py-1.5 text-sm">
+                            out of sync with fieldLabels after the first unmatched column.
+                            Controlled + actually applied at commit (see handleCommit) — it used
+                            to be defaultValue-only with no onChange, so a correction here never
+                            stuck anywhere and never changed what got imported either. */}
+                        <select
+                          value={columnMapping[col] ?? "__ignore"}
+                          onChange={(e) => setColumnMapping((prev) => ({ ...prev, [col]: e.target.value }))}
+                          className="input py-1.5 text-sm"
+                        >
                           {fieldLabels.map((f) => (
                             <option key={f} value={f}>
                               {f}

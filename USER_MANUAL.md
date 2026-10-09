@@ -52,7 +52,15 @@ day, with a running total column on the right and a total row at the bottom.
 - **Enter hours**: click a cell and type a number. Use the arrow keys or
   **Enter** to move between cells without touching the mouse.
 - **Add a project row**: use the search box above the grid to find and add a
-  project/task you're assigned to but that isn't showing yet.
+  project/task you're assigned to but that isn't showing yet. This list only
+  ever shows projects you're actually a member of — regardless of role,
+  logging time against a project always requires being assigned to it.
+- **Logging PTO, jury duty, an internal meeting, or general admin time**:
+  every employee is automatically a member of a standing **Time Off &
+  Admin** project (search for it like any other project) with tasks for
+  exactly this — **PTO**, **Jury Duty**, **Meeting**, and **Admin**. It
+  never expires and isn't billable, so it's always available without
+  needing to ask a Project Admin to add you to anything.
 - **Comments**: a small comment icon sits next to every hours box. Click it
   to open a small overlay window and type what that entry was for — the
   comment stays with that specific entry (nothing is shown inline in the
@@ -147,6 +155,9 @@ with the employee, the week, total hours, when it was submitted, and how many
 days it's been pending. Filter by department or how long something has been
 waiting.
 
+- **View details**: click the eye icon on any row (any tab) to see that
+  timesheet's actual day-by-day entries, notes, and approval history before
+  deciding — no need to approve or reject blind.
 - **Approve**: click the checkmark. Optionally leave a comment. This is
   final — the employee gets an immediate confirmation and the data is now
   considered settled for reporting purposes.
@@ -164,7 +175,18 @@ waiting.
   you're reachable after all. Revoke it early from the same panel, which
   keeps a record of past delegations rather than deleting them outright.
 
-### 2.2 SLA and escalation
+### 2.2 Looking up someone's timesheet
+
+Need to check what a specific person submitted — including an older,
+already-approved period, not just what's currently waiting on you? Click the
+**All Timesheets** tab (next to Pending/Approved/Returned). Search for one or
+more people, optionally narrow by status or a date range, and click the eye
+icon on any row to see its full day-by-day breakdown (hours, notes, and its
+approval history) without having to approve or reject anything. A Project
+Admin sees this for anyone who shares a project they administer; Super Admin
+and HR Admin see everyone.
+
+### 2.3 SLA and escalation
 
 Every pending item shows how many days it's been sitting in a queue. If a
 timesheet has no resolvable Project Admin, or sits too long (the org's
@@ -192,6 +214,11 @@ Click **Projects**. This screen has two tabs: **Projects** and **Clients**.
   sum of its tasks' estimated hours, rolled up automatically. Add or adjust
   tasks (in the New Project form or later, from the **Tasks** tab) to change
   it.
+- **Edit vs. Members icon**: a project row's **Edit** icon opens the full
+  modal (Overview/Tasks/Members, starting on Overview); its **Members** icon
+  opens a focused dialog showing only the member list — a quick way to
+  add/remove people or adjust hour caps without the rest of the project's
+  settings in view.
 - **Sub-tasks live inside their project, not as their own menu**: open a
   project (the eye/pencil icon) and use its **Tasks** tab to add sub-tasks
   (e.g. "Requirements", "Build", "Testing") — each can have its own active
@@ -208,9 +235,10 @@ Click **Projects**. This screen has two tabs: **Projects** and **Clients**.
   "Members" sections. Anyone else can still view the Members tab, but won't
   see the add/remove controls.
 - **The same restriction applies to the Overview tab**: only that project's
-  own admin (or Super Admin) can change its Status, Billing type, or the
-  "Send timesheets to the client" setting. Anyone else with view access to
-  the project (e.g. an assigned team member) sees a plain read-only summary
+  own admin (or Super Admin) can change its Name, Start/End date, Status,
+  Billing type, or the "Send timesheets to the client" setting. Anyone else
+  with view access to the project (e.g. an assigned team member) sees a
+  plain read-only summary
   of these instead of editable controls, so it's clear at a glance who owns
   that project's settings.
 - **Team members**: from a project's **Members** tab, assign the people who
@@ -251,7 +279,10 @@ Click **Projects**. This screen has two tabs: **Projects** and **Clients**.
 Click **Users**.
 
 - **New User**: set employee ID, name, work email, department, role, job
-  title, reporting manager, and start date.
+  title, reporting manager, and start date. Every new user (single-created
+  here or added via Bulk Upload) is automatically enrolled in the standing
+  **Time Off & Admin** project (see Section 1.2) so they can log PTO/admin
+  time from day one without any extra setup.
 - **Deactivate / reactivate**: deactivating blocks new time entry but keeps
   the person's history and audit trail intact — nothing is deleted.
 - **Roles**: see the Roles tab for the four available roles and what each can
@@ -288,16 +319,24 @@ submitting (Section 1.3).
 ## 6. Bulk uploading users or projects (Excel)
 
 Instead of entering people or projects one at a time, use **Bulk Upload**
-from the Users or Projects screen:
+from the Users or Projects screen — visible to **HR Admin and Super Admin
+only** (a Project Admin manages their own projects individually, but doesn't
+bulk-create them). Each entry point only ever imports its own type for that
+whole flow — there's no switching between Users and Projects mid-wizard.
 
 1. **Download the template** — an Excel file with the exact columns expected
    and a sample row.
 2. **Fill it in** and upload it.
-3. **Review**: every row is checked *before anything is saved*. Each row is
+3. **Map Columns**: each column from your file is matched to a TimeSync
+   field — correct automatically when your file's headers match the
+   template, and adjustable here if they don't (or if you want to skip a
+   column entirely). Your choice here is what actually gets imported, not
+   just a preview.
+4. **Review**: every row is checked *before anything is saved*. Each row is
    flagged **Valid**, **Warning** (e.g. a department that will be
    auto-created), or **Error** (with the specific reason — a duplicate
    employee ID, an invalid email, an unrecognized role, etc.).
-4. **Commit**: you can import just the valid/warning rows and fix the error
+5. **Commit**: you can import just the valid/warning rows and fix the error
    rows separately — nothing is held hostage by a few bad rows. Every import
    run is logged (who, when, how many succeeded/failed) for traceability.
 
