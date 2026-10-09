@@ -8,7 +8,8 @@ This README is for the engineering/QA team picking this up. For end users,
 see [`USER_MANUAL.md`](USER_MANUAL.md). For the data model, API conventions,
 and what's real vs. stubbed, see [`SCHEMA_REFERENCE.md`](SCHEMA_REFERENCE.md).
 For a one-page rundown of the servers/services involved, see
-[`INFRASTRUCTURE.md`](INFRASTRUCTURE.md).
+[`INFRASTRUCTURE.md`](INFRASTRUCTURE.md). For what shipped in each release,
+see [`RELEASE_NOTES.md`](RELEASE_NOTES.md).
 
 ## 0. Database (SQLite)
 How to create your own local DB:
@@ -75,6 +76,7 @@ timsheet/
   README.md               this file
   USER_MANUAL.md          end-user guide
   SCHEMA_REFERENCE.md      data model, API conventions, extension points
+  RELEASE_NOTES.md        version history, newest first
 ```
 
 ## 4. Tech stack
