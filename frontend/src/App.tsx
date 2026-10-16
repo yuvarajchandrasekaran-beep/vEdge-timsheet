@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "./components/layout/AppShell";
 import { ProtectedRoute, RoleRoute } from "./routes/ProtectedRoute";
 import LoginPage from "./pages/LoginPage";
+import LauncherPage from "./pages/LauncherPage";
 import DashboardPage from "./pages/DashboardPage";
 import TimesheetPeriodPage from "./pages/TimesheetPeriodPage";
 import TimesheetWeeklyPage from "./pages/TimesheetWeeklyPage";
@@ -23,8 +24,10 @@ export default function App() {
       <Route path="/login" element={<LoginPage />} />
 
       <Route element={<ProtectedRoute />}>
+        <Route path="/" element={<Navigate to="/launcher" replace />} />
+        <Route path="/launcher" element={<LauncherPage />} />
+
         <Route element={<AppShell />}>
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardPage />} />
 
           <Route path="/timesheets" element={<TimesheetPeriodPage kind="month" />} />

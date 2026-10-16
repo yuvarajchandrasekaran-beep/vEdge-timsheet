@@ -22,7 +22,7 @@ export default function LoginPage() {
   const [showPasswordForm, setShowPasswordForm] = useState(!GOOGLE_CLIENT_ID);
 
   if (isAuthenticated) {
-    const from = (location.state as { from?: Location })?.from?.pathname ?? "/dashboard";
+    const from = (location.state as { from?: Location })?.from?.pathname ?? "/launcher";
     return <Navigate to={from} replace />;
   }
 
@@ -32,7 +32,7 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       await login(email, password);
-      navigate("/dashboard", { replace: true });
+      navigate("/launcher", { replace: true });
     } catch (err) {
       setError(getApiErrorMessage(err, "Invalid email or password."));
     } finally {
@@ -45,7 +45,7 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       await loginWithGoogle(credential);
-      navigate("/dashboard", { replace: true });
+      navigate("/launcher", { replace: true });
     } catch (err) {
       setError(getApiErrorMessage(err, "Couldn't sign in with that Google account."));
     } finally {

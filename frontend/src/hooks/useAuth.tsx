@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { apiClient, getStoredToken, onUnauthorized, setStoredToken } from "../api/client";
+import { apiClient, getStoredToken, onUnauthorized, setStoredToken, TOKEN_KEY } from "../api/client";
 import type { AuthResponse, RoleName, User } from "../types";
 
 interface AuthContextValue {
@@ -56,6 +56,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null);
       queryClient.clear();
     });
+  }, [queryClient]);
+
+  // TimeSync is embedded via iframe inside the app launcher, which runs as a
+  // separate browsing context (own React tree) despite sharing this origin's
+  // localStorage. Logging out inside that iframe clears the token but can't
+  // update the launcher's own React state directly — only the `storage` event
+  // (fired on every other same-origin context, never the one that wrote it)
+  // tells the launcher to drop its session too, instead of being stuck showing
+  // a login form trapped inside the iframe.
+  useEffect(() => {
+    function handleStorage(e: StorageEvent) {
+      if (e.key === TOKEN_KEY && !e.newValue) {
+        setToken(null);
+        setUser(null);
+        queryClient.clear();
+      }
+    }
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
   }, [queryClient]);
 
   // On mount, if a token is persisted, hydrate the user profile via /auth/me.

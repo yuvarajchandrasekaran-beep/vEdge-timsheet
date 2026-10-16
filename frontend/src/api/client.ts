@@ -11,7 +11,7 @@ export const apiClient = axios.create({
   },
 });
 
-const TOKEN_KEY = "timesync.accessToken";
+export const TOKEN_KEY = "timesync.accessToken";
 
 export function getStoredToken(): string | null {
   try {
