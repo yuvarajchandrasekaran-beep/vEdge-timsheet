@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "../hooks/useAuth";
 
 interface AppTile {
@@ -56,14 +56,38 @@ function BrandMark() {
   return (
     <div className="flex items-center gap-2.5">
       <img src="/brand/logo.svg" alt="" className="h-8 w-auto" />
-      <span className="text-lg font-bold tracking-tight text-gray-900">VividExpress</span>
+      <span className="text-lg font-bold tracking-tight text-gray-900">VividExpress Container</span>
     </div>
   );
+}
+
+function useNow() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return now;
+}
+
+function greetingFor(hour: number) {
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
 }
 
 export default function LauncherPage() {
   const { user, logout } = useAuth();
   const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
+  const now = useNow();
+  const firstName = user?.name?.split(" ")[0] ?? "there";
+  const dateLabel = now.toLocaleDateString(undefined, {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+  const timeLabel = now.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 
   const selectedApp = APPS.find((a) => a.id === selectedAppId) ?? null;
 
@@ -102,7 +126,7 @@ export default function LauncherPage() {
       <div className="mx-auto flex max-w-5xl items-center justify-between">
         <div className="flex items-center gap-2.5">
           <img src="/brand/logo.svg" alt="Vivid Edge Integration COE" className="h-8 w-auto" />
-          <span className="text-lg font-bold tracking-tight text-white">VividExpress</span>
+          <span className="text-lg font-bold tracking-tight text-white">VividExpress Container</span>
         </div>
         <div className="flex items-center gap-4">
           {user && <span className="text-sm text-white/70">{user.name}</span>}
@@ -116,40 +140,58 @@ export default function LauncherPage() {
         </div>
       </div>
 
-      <div className="mx-auto mt-16 max-w-5xl text-center">
-        <h1 className="text-2xl font-bold text-white sm:text-3xl">Choose an application</h1>
-        <p className="mt-2 text-sm text-white/60">Pick where you'd like to go — you can always come back here.</p>
+      <div className="mx-auto mt-14 max-w-2xl text-center">
+        <p className="text-sm font-medium text-white/50">
+          {dateLabel} · {timeLabel}
+        </p>
+        <h1 className="mt-3 text-3xl font-bold text-white sm:text-4xl">
+          {greetingFor(now.getHours())}, {firstName}
+        </h1>
+        <p className="mt-4 text-base leading-relaxed text-white/70">
+          Welcome to the VividExpress Container — your single gateway to every Vivid Edge Integration COE
+          application. Pick a tile below to jump straight in, and come back to this screen at any time without
+          losing your place.
+        </p>
       </div>
 
-      <div className="mx-auto mt-10 grid max-w-3xl grid-cols-1 gap-6 sm:grid-cols-2">
-        {APPS.map((app) => (
-          <button
-            key={app.id}
-            type="button"
-            disabled={app.comingSoon}
-            onClick={() => setSelectedAppId(app.id)}
-            className={`group relative overflow-hidden rounded-2xl bg-white p-6 text-left shadow-2xl transition-transform ${
-              app.comingSoon ? "cursor-not-allowed opacity-60" : "hover:-translate-y-1"
-            }`}
-          >
-            {app.comingSoon && (
-              <span className="absolute right-0 top-4 rounded-l-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
-                Coming soon
-              </span>
-            )}
-            <div
-              className={`flex h-12 w-12 items-center justify-center rounded-xl ${
-                app.comingSoon ? "bg-gray-100 text-gray-400" : "bg-brand-accent-soft text-brand-primary"
+      <div className="mx-auto mt-10 max-w-3xl">
+        <p className="mb-4 text-center text-xs font-semibold uppercase tracking-wider text-white/40">
+          Your applications
+        </p>
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+          {APPS.map((app) => (
+            <button
+              key={app.id}
+              type="button"
+              disabled={app.comingSoon}
+              onClick={() => setSelectedAppId(app.id)}
+              className={`group relative overflow-hidden rounded-2xl bg-white p-6 text-left shadow-2xl transition-transform ${
+                app.comingSoon ? "cursor-not-allowed opacity-60" : "hover:-translate-y-1"
               }`}
             >
-              <TileIcon appId={app.id} />
-            </div>
-            <h2 className="mt-4 text-lg font-bold text-gray-900">{app.name}</h2>
-            <p className="mt-1 text-sm text-gray-500">{app.description}</p>
-            {app.comingSoon && <p className="mt-3 text-xs font-medium text-gray-400">ETA: {app.eta}</p>}
-          </button>
-        ))}
+              {app.comingSoon && (
+                <span className="absolute right-0 top-4 rounded-l-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
+                  Coming soon
+                </span>
+              )}
+              <div
+                className={`flex h-12 w-12 items-center justify-center rounded-xl ${
+                  app.comingSoon ? "bg-gray-100 text-gray-400" : "bg-brand-accent-soft text-brand-primary"
+                }`}
+              >
+                <TileIcon appId={app.id} />
+              </div>
+              <h2 className="mt-4 text-lg font-bold text-gray-900">{app.name}</h2>
+              <p className="mt-1 text-sm text-gray-500">{app.description}</p>
+              {app.comingSoon && <p className="mt-3 text-xs font-medium text-gray-400">ETA: {app.eta}</p>}
+            </button>
+          ))}
+        </div>
       </div>
+
+      <p className="mx-auto mt-16 max-w-3xl text-center text-xs text-white/30">
+        Vivid Edge Integration COE — Internal Applications Portal
+      </p>
     </div>
   );
 }
