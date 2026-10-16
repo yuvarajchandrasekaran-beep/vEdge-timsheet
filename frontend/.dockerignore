@@ -4,5 +4,8 @@ dist-ssr
 *.local
 .env
 .env.*
+# Not a secret (public Google OAuth Client ID) — needed in the build context
+# so Vite bakes VITE_GOOGLE_CLIENT_ID into the production bundle.
+!.env.production
 *.tsbuildinfo
 .DS_Store

@@ -5,5 +5,10 @@ dist-ssr
 .env
 .env.*
 !.env.example
+# Not a secret (a Google OAuth Client ID is a public identifier, not a
+# credential — this app never uses a Client Secret) — committed so Vite
+# bakes it into the production build, and so `gcloud builds submit` (which
+# excludes whatever .gitignore excludes, absent a .gcloudignore) uploads it.
+!.env.production
 *.tsbuildinfo
 .DS_Store
