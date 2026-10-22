@@ -26,8 +26,9 @@ import { ProgressBar } from "../components/common/ProgressBar";
 import { Pagination } from "../components/common/Pagination";
 import { Modal } from "../components/common/Modal";
 import { Spinner } from "../components/common/Spinner";
-import { IconBarChart, IconDownload } from "../components/common/icons";
+import { IconBarChart, IconChevronDown, IconDownload } from "../components/common/icons";
 import { formatDate, humanizeHeader, formatReportCell } from "../utils/format";
+import clsx from "clsx";
 
 const REPORT_OPTIONS: { value: ReportKey; label: string }[] = [
   { value: "project-utilization", label: "Project Utilization" },
@@ -402,15 +403,64 @@ function ClientAuditSection({
  */
 const REPORT_PAGE_SIZE = 25;
 
+function isDateLikeKey(key: string): boolean {
+  return /date/i.test(key);
+}
+
+/** Generic cross-column comparator — numeric strings compare numerically,
+ * ISO date strings ("YYYY-MM-DD...") sort correctly as plain strings, and
+ * everything else falls back to a locale-aware string compare. Shared by
+ * every report's column sort since columns vary per report key. */
+function compareReportValues(a: unknown, b: unknown): number {
+  if (a == null && b == null) return 0;
+  if (a == null) return -1;
+  if (b == null) return 1;
+  if (typeof a === "number" && typeof b === "number") return a - b;
+  const aStr = String(a).trim();
+  const bStr = String(b).trim();
+  const aNum = Number(aStr);
+  const bNum = Number(bStr);
+  if (aStr !== "" && bStr !== "" && !isNaN(aNum) && !isNaN(bNum)) return aNum - bNum;
+  return aStr.localeCompare(bStr);
+}
+
 function GenericReportTable({ rows }: { rows: Record<string, unknown>[] }) {
   const headers = Object.keys(rows[0] ?? {});
+  const dateKey = headers.find(isDateLikeKey) ?? null;
   // Exports (PDF/Excel/CSV) and the on-screen preview intentionally share
   // the same full, unfiltered `rows` — only how this table *displays* them
   // is paginated, so a large report (Audit Trail especially) isn't one huge
   // scroll-to-see-everything table on screen.
   const [page, setPage] = useState(1);
-  useEffect(() => setPage(1), [rows]);
-  const pageRows = rows.slice((page - 1) * REPORT_PAGE_SIZE, page * REPORT_PAGE_SIZE);
+  // Defaults to the date column, most-recent-first — matches what the
+  // backend's own query already orders by, so the initial view and this
+  // control's indicator agree; a header click re-sorts from there.
+  const [sort, setSort] = useState<{ key: string; dir: "asc" | "desc" } | null>(
+    dateKey ? { key: dateKey, dir: "desc" } : null
+  );
+  useEffect(() => {
+    setPage(1);
+    setSort(dateKey ? { key: dateKey, dir: "desc" } : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows]);
+
+  function toggleSort(key: string) {
+    setSort((prev) => {
+      if (prev?.key === key) return { key, dir: prev.dir === "asc" ? "desc" : "asc" };
+      // A fresh click on a date column reads most naturally as "most recent
+      // first" rather than the alphabetical-style ascending default used for
+      // every other column.
+      return { key, dir: isDateLikeKey(key) ? "desc" : "asc" };
+    });
+  }
+
+  const sortedRows = useMemo(() => {
+    if (!sort) return rows;
+    const dir = sort.dir === "asc" ? 1 : -1;
+    return [...rows].sort((a, b) => compareReportValues(a[sort.key], b[sort.key]) * dir);
+  }, [rows, sort]);
+
+  const pageRows = sortedRows.slice((page - 1) * REPORT_PAGE_SIZE, page * REPORT_PAGE_SIZE);
 
   return (
     <>
@@ -418,8 +468,24 @@ function GenericReportTable({ rows }: { rows: Record<string, unknown>[] }) {
         <thead>
           <tr className="border-b border-gray-100 text-left text-xs font-semibold uppercase tracking-wide text-gray-400">
             {headers.map((h) => (
-              <th key={h} className="whitespace-nowrap px-4 py-3">
-                {humanizeHeader(h)}
+              <th
+                key={h}
+                onClick={() => toggleSort(h)}
+                title={`Sort by ${humanizeHeader(h)}`}
+                className="group cursor-pointer select-none whitespace-nowrap px-4 py-3 hover:text-gray-600"
+              >
+                <span className="inline-flex items-center gap-1">
+                  {humanizeHeader(h)}
+                  <IconChevronDown
+                    size={12}
+                    className={clsx(
+                      "transition-transform",
+                      sort?.key === h
+                        ? clsx("text-gray-600", sort.dir === "asc" && "rotate-180")
+                        : "text-gray-300 opacity-0 group-hover:opacity-100"
+                    )}
+                  />
+                </span>
               </th>
             ))}
           </tr>
