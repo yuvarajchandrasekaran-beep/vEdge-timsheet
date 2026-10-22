@@ -102,6 +102,7 @@ export default function TimesheetPeriodPage({ kind }: { kind: PeriodKind }) {
   const [globalComment, setGlobalComment] = useState("");
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [submitModalOpen, setSubmitModalOpen] = useState(false);
+  const [openingSubmit, setOpeningSubmit] = useState(false);
   const hydratedKey = useRef<string | null>(null);
   const hydratedComment = useRef<string | null>(null);
   const lastPushedComment = useRef<string | null>(null);
@@ -374,6 +375,23 @@ export default function TimesheetPeriodPage({ kind }: { kind: PeriodKind }) {
     );
   }
 
+  // See handleConfirmSubmit's flushAll() below — the modal's warnings come
+  // from each week's last-saved validation, so opening it right after an
+  // edit (before that week's debounce fires) could still show a stale
+  // warning for numbers the user had already corrected. Flushing first keeps
+  // what's shown in sync with what's actually in the grid.
+  async function handleOpenSubmit() {
+    setOpeningSubmit(true);
+    try {
+      await Promise.all(flushAll());
+      setSubmitModalOpen(true);
+    } catch (err) {
+      showToast(getApiErrorMessage(err, "Couldn't save your latest changes — try again before submitting."), "error");
+    } finally {
+      setOpeningSubmit(false);
+    }
+  }
+
   async function handleConfirmSubmit() {
     try {
       await Promise.all(flushAll());
@@ -500,8 +518,8 @@ export default function TimesheetPeriodPage({ kind }: { kind: PeriodKind }) {
             Download
           </button>
           <button
-            onClick={() => setSubmitModalOpen(true)}
-            disabled={grandTotal === 0}
+            onClick={handleOpenSubmit}
+            disabled={grandTotal === 0 || openingSubmit}
             className="rounded-xl bg-brand-primary px-4 py-2 text-sm font-semibold text-white hover:bg-brand-primary-dark disabled:opacity-50"
           >
             Submit {kind}

@@ -51,6 +51,7 @@ export default function TimesheetWeeklyPage() {
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [submitModalOpen, setSubmitModalOpen] = useState(false);
+  const [openingSubmit, setOpeningSubmit] = useState(false);
   const hydratedForWeek = useRef<string | null>(null);
   const inputRefs = useRef(new Map<string, HTMLInputElement>());
 
@@ -212,6 +213,27 @@ export default function TimesheetWeeklyPage() {
     );
   }
 
+  // The warnings/blockingIssues shown in the Submit modal come from the
+  // server's last-saved validation (timesheet.validation), cached from the
+  // last autosave response — not recomputed from local `rows` state. Opening
+  // the modal right after an edit (before its 900ms debounce fires, or while
+  // that autosave request is still in flight) showed the PRIOR save's
+  // warnings — e.g. an "unusually high total" for a day the user had since
+  // corrected back down — because the fresh, edit-reflecting validation
+  // hadn't landed yet. Flushing first guarantees the modal always reflects
+  // what's actually in the grid.
+  async function handleOpenSubmit() {
+    setOpeningSubmit(true);
+    try {
+      await flushPersist();
+      setSubmitModalOpen(true);
+    } catch (err) {
+      showToast(getApiErrorMessage(err, "Couldn't save your latest changes — try again before submitting."), "error");
+    } finally {
+      setOpeningSubmit(false);
+    }
+  }
+
   function handleRecall() {
     if (!timesheet) return;
     recallMutation.mutate(
@@ -313,8 +335,8 @@ export default function TimesheetWeeklyPage() {
           )}
           {isEditable && (
             <button
-              onClick={() => setSubmitModalOpen(true)}
-              disabled={totalHours === 0 || !timesheet}
+              onClick={handleOpenSubmit}
+              disabled={totalHours === 0 || !timesheet || openingSubmit}
               className="rounded-xl bg-brand-primary px-4 py-2 text-sm font-semibold text-white hover:bg-brand-primary-dark disabled:opacity-50"
             >
               Submit

@@ -51,6 +51,7 @@ export default function TimesheetDayPage() {
   const [lines, setLines] = useState<DayLine[]>([]);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [submitModalOpen, setSubmitModalOpen] = useState(false);
+  const [openingSubmit, setOpeningSubmit] = useState(false);
   const hydratedKey = useRef<string | null>(null);
 
   useEffect(() => {
@@ -131,6 +132,22 @@ export default function TimesheetDayPage() {
 
   const { debounced: debouncedPersist, flush: flushPersist } = useDebouncedCallback(persist, AUTOSAVE_DELAY);
   useEffect(() => () => flushPersist(), [date]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The modal's warnings come from the server's last-saved validation, not
+  // from local `lines` state — opening it right after an edit (before its
+  // debounce fires) could show a stale warning for an hour value the user
+  // had already changed. Flushing first keeps it in sync with the screen.
+  async function handleOpenSubmit() {
+    setOpeningSubmit(true);
+    try {
+      await flushPersist();
+      setSubmitModalOpen(true);
+    } catch (err) {
+      showToast(getApiErrorMessage(err, "Couldn't save your latest changes — try again before submitting."), "error");
+    } finally {
+      setOpeningSubmit(false);
+    }
+  }
 
   function updateLine(projectTaskId: string, patch: Partial<DayLine>) {
     setLines((prev) => {
@@ -256,8 +273,8 @@ export default function TimesheetDayPage() {
           )}
           {isEditable && timesheet && (
             <button
-              onClick={() => setSubmitModalOpen(true)}
-              disabled={submitMutation.isPending}
+              onClick={handleOpenSubmit}
+              disabled={submitMutation.isPending || openingSubmit}
               className="flex items-center gap-1.5 rounded-xl bg-brand-primary px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-primary-dark disabled:opacity-60"
               title="Submits the entire week this day belongs to, same as Week View's Submit"
             >
@@ -373,7 +390,16 @@ export default function TimesheetDayPage() {
           warnings={submitWarnings}
           blockingIssues={submitBlockingIssues}
           weekLabel={formatWeekRange(weekStart, getWeekEnd(weekStart))}
-          onConfirm={() =>
+          onConfirm={async () => {
+            // Mirrors Week View's submit — without this, confirming right
+            // after an edit (before its debounce fired) could submit the
+            // week as it was BEFORE that last edit.
+            try {
+              await flushPersist();
+            } catch (err) {
+              showToast(getApiErrorMessage(err, "Couldn't save your latest changes — try again before submitting."), "error");
+              return;
+            }
             submitMutation.mutate(
               { id: timesheet.id, weekStart },
               {
@@ -383,8 +409,8 @@ export default function TimesheetDayPage() {
                 },
                 onError: (err) => showToast(getApiErrorMessage(err, "Couldn't submit this timesheet."), "error"),
               }
-            )
-          }
+            );
+          }}
         />
       )}
     </div>
