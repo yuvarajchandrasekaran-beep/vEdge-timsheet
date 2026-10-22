@@ -143,6 +143,10 @@ export default function TimesheetDayPage() {
   // on) matches the server's actual current state. See TimesheetWeeklyPage's
   // handleOpenSubmit for the real case this was found from.
   async function handleOpenSubmit() {
+    // See TimesheetWeeklyPage's handleOpenSubmit — forces any field the
+    // cursor is still in to commit before this reads current state, instead
+    // of relying on event ordering between that field and this click.
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     setOpeningSubmit(true);
     try {
       await flushPersist();

@@ -235,6 +235,13 @@ export default function TimesheetWeeklyPage() {
   // makes the grid and the warnings describe the exact same data — whatever
   // is actually about to be submitted — instead of two different pictures.
   async function handleOpenSubmit() {
+    // Clicking Submit while the cursor is still inside an hours/notes field
+    // doesn't itself lose that keystroke (onChange already commits it to
+    // `rows` on every character), but forcing a blur here removes any
+    // dependency on exact browser event ordering between that field and this
+    // click — the same commit a normal tab-away/click-away blur would cause,
+    // just guaranteed to happen before the save below reads current state.
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     setOpeningSubmit(true);
     try {
       await flushPersist();

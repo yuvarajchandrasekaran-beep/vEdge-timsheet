@@ -387,6 +387,10 @@ export default function TimesheetPeriodPage({ kind }: { kind: PeriodKind }) {
   // submitted. See TimesheetWeeklyPage's handleOpenSubmit for the real case
   // this was found from.
   async function handleOpenSubmit() {
+    // See TimesheetWeeklyPage's handleOpenSubmit — forces any field the
+    // cursor is still in to commit before this reads current state, instead
+    // of relying on event ordering between that field and this click.
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     setOpeningSubmit(true);
     try {
       await Promise.all(flushAll());
