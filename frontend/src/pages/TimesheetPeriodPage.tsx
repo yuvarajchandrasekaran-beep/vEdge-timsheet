@@ -375,15 +375,26 @@ export default function TimesheetPeriodPage({ kind }: { kind: PeriodKind }) {
     );
   }
 
-  // See handleConfirmSubmit's flushAll() below — the modal's warnings come
-  // from each week's last-saved validation, so opening it right after an
-  // edit (before that week's debounce fires) could still show a stale
-  // warning for numbers the user had already corrected. Flushing first keeps
-  // what's shown in sync with what's actually in the grid.
+  // Flushing alone isn't enough — `rows` is hydrated from the server once per
+  // period (so a background refetch never clobbers active typing), so an
+  // entry that exists server-side but this tab never loaded (added from
+  // another tab/device, or entered directly against the API) stays invisible
+  // in the grid forever, even though the server's own warnings (computed
+  // fresh from the real DB state) still account for it — producing a
+  // confusing warning about hours the grid doesn't show. Refetching every
+  // week and re-hydrating right before showing the confirmation makes the
+  // grid and the warnings describe the exact same data that's about to be
+  // submitted. See TimesheetWeeklyPage's handleOpenSubmit for the real case
+  // this was found from.
   async function handleOpenSubmit() {
     setOpeningSubmit(true);
     try {
       await Promise.all(flushAll());
+      const refetched = await Promise.all(summaryQueries.map((q) => q.refetch()));
+      const freshData = refetched.map((r) => r.data);
+      if (freshData.every((d) => d !== undefined)) {
+        setRows(buildRowsFromTimesheets(freshData, allDates));
+      }
       setSubmitModalOpen(true);
     } catch (err) {
       showToast(getApiErrorMessage(err, "Couldn't save your latest changes — try again before submitting."), "error");

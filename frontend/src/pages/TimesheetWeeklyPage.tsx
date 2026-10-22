@@ -214,18 +214,35 @@ export default function TimesheetWeeklyPage() {
   }
 
   // The warnings/blockingIssues shown in the Submit modal come from the
-  // server's last-saved validation (timesheet.validation), cached from the
-  // last autosave response — not recomputed from local `rows` state. Opening
-  // the modal right after an edit (before its 900ms debounce fires, or while
-  // that autosave request is still in flight) showed the PRIOR save's
-  // warnings — e.g. an "unusually high total" for a day the user had since
-  // corrected back down — because the fresh, edit-reflecting validation
-  // hadn't landed yet. Flushing first guarantees the modal always reflects
-  // what's actually in the grid.
+  // server's last-saved validation (timesheet.validation) — not recomputed
+  // from local `rows` state. Opening the modal right after an edit (before
+  // its 900ms debounce fires, or while that autosave request is still in
+  // flight) showed the PRIOR save's warnings. Flushing first closes that gap.
+  //
+  // But `rows` itself can ALSO diverge from the server in a way flushing
+  // alone doesn't fix: it's hydrated from the server exactly once per week
+  // (deliberately, so a background refetch never clobbers active typing —
+  // see the hydration effect above), so an entry that exists server-side but
+  // was never loaded into THIS session (added from another tab/device, or
+  // entered directly against the API, e.g. backdated test data) stays
+  // invisible in the grid forever. Real case: a timesheet had a server-side
+  // "Time Off & Admin / PTO" row worth 8h on Monday that this tab's `rows`
+  // never picked up — the grid and modal showed Monday as 8h/42h-for-the-week
+  // (matching only the rows this tab knew about), while the modal's warning
+  // correctly but confusingly reported "16h" (the server's real total,
+  // 8h Dev + 8h PTO) with no day label, since warnings always came from the
+  // server. Refetching and re-hydrating right before showing the confirmation
+  // makes the grid and the warnings describe the exact same data — whatever
+  // is actually about to be submitted — instead of two different pictures.
   async function handleOpenSubmit() {
     setOpeningSubmit(true);
     try {
       await flushPersist();
+      const fresh = await timesheetQuery.refetch();
+      if (fresh.data) {
+        setRows(buildRowsFromTimesheet(fresh.data, weekStart));
+        setWeekNotes(fresh.data.weekNotes ?? "");
+      }
       setSubmitModalOpen(true);
     } catch (err) {
       showToast(getApiErrorMessage(err, "Couldn't save your latest changes — try again before submitting."), "error");

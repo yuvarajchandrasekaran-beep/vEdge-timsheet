@@ -133,14 +133,33 @@ export default function TimesheetDayPage() {
   const { debounced: debouncedPersist, flush: flushPersist } = useDebouncedCallback(persist, AUTOSAVE_DELAY);
   useEffect(() => () => flushPersist(), [date]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // The modal's warnings come from the server's last-saved validation, not
-  // from local `lines` state — opening it right after an edit (before its
-  // debounce fires) could show a stale warning for an hour value the user
-  // had already changed. Flushing first keeps it in sync with the screen.
+  // weekDayTotals/submitWarnings above both already read from the same
+  // `timesheet` query object, so they can't disagree with EACH OTHER — but
+  // that object itself can still be stale relative to the real DB record
+  // (an entry added from another tab/device, or entered directly against the
+  // API, that this page's query cache never picked up). Flushing any pending
+  // edit here, then refetching and re-hydrating `lines` for today from the
+  // result, makes sure what's shown (and what Confirm & Submit below acts
+  // on) matches the server's actual current state. See TimesheetWeeklyPage's
+  // handleOpenSubmit for the real case this was found from.
   async function handleOpenSubmit() {
     setOpeningSubmit(true);
     try {
       await flushPersist();
+      const fresh = await timesheetQuery.refetch();
+      const dayEntries = (fresh.data?.entries ?? []).filter((e) => e.entryDate === date);
+      if (fresh.data) {
+        setLines(
+          dayEntries.map((e) => ({
+            projectTaskId: e.projectTaskId,
+            projectId: e.projectId,
+            projectName: e.projectName,
+            taskName: e.taskName,
+            hours: e.hours ? String(e.hours) : "",
+            notes: e.notes ?? "",
+          }))
+        );
+      }
       setSubmitModalOpen(true);
     } catch (err) {
       showToast(getApiErrorMessage(err, "Couldn't save your latest changes — try again before submitting."), "error");
