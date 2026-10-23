@@ -1,6 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { computeUsFederalHolidays } from "../src/services/usFederalHolidays";
+import { ensureDefaultProject, enrollInDefaultProject } from "../src/services/defaultProject";
 
 const prisma = new PrismaClient();
 const PASSWORD = "Password123!";
@@ -306,6 +307,62 @@ async function main() {
   const solsticeClient = await prisma.client.upsert({ where: { name: "Solstice" }, update: { status: "ACTIVE" }, create: { name: "Solstice", status: "ACTIVE" } });
   const serviceNowClient = await prisma.client.upsert({ where: { name: "ServiceNow" }, update: { status: "ACTIVE" }, create: { name: "ServiceNow", status: "ACTIVE" } });
   const nucorClient = await prisma.client.upsert({ where: { name: "Nucor Corp" }, update: { status: "ACTIVE" }, create: { name: "Nucor Corp", status: "ACTIVE" } });
+
+  // Holiday calendars — one per client that has one, color-coded. Every
+  // employee is auto-enrolled in the standing Time Off & Admin project under
+  // Vivid Edge (see services/defaultProject.ts), so everyone sees the Vivid
+  // Edge Corporate Calendar by default; anyone also on a Vodacom or
+  // ServiceNow project additionally sees that calendar's own holidays,
+  // color-coded separately — and on Thanksgiving (shared by both calendars
+  // below) sees BOTH colors on the same day, demonstrating overlap. FinCorp,
+  // Solstice and Nucor Corp are deliberately left without a calendar, to
+  // demonstrate that a client with none contributes no holidays at all.
+  const vividEdgeCalendar = await prisma.holidayCalendar.upsert({
+    where: { name: "Vivid Edge Corporate Calendar" },
+    update: { color: "#1B4298" },
+    create: { name: "Vivid Edge Corporate Calendar", color: "#1B4298" },
+  });
+  const vodacomCalendar = await prisma.holidayCalendar.upsert({
+    where: { name: "Vodacom Calendar" },
+    update: { color: "#F59E0B" },
+    create: { name: "Vodacom Calendar", color: "#F59E0B" },
+  });
+  const serviceNowCalendar = await prisma.holidayCalendar.upsert({
+    where: { name: "ServiceNow Calendar" },
+    update: { color: "#16A34A" },
+    create: { name: "ServiceNow Calendar", color: "#16A34A" },
+  });
+  await prisma.client.update({ where: { id: vividEdgeClient.id }, data: { holidayCalendarId: vividEdgeCalendar.id } });
+  await prisma.client.update({ where: { id: vodacomClient.id }, data: { holidayCalendarId: vodacomCalendar.id } });
+  await prisma.client.update({ where: { id: serviceNowClient.id }, data: { holidayCalendarId: serviceNowCalendar.id } });
+
+  async function ensureHoliday(name: string, date: string, calendarId: number) {
+    const d = new Date(date);
+    const existing = await prisma.holiday.findFirst({ where: { name, date: d, calendarId } });
+    if (!existing) await prisma.holiday.create({ data: { name, date: d, calendarId } });
+  }
+
+  // Vivid Edge: Founder's Day plus the full US federal calendar, spanning
+  // this and next year so both the current and upcoming Monthly views show
+  // holiday warnings without needing a manual sync first.
+  await ensureHoliday("Founder's Day", "2026-09-05", vividEdgeCalendar.id);
+  for (const year of [2026, 2027]) {
+    for (const h of computeUsFederalHolidays(year)) {
+      await ensureHoliday(h.name, h.date.toISOString().slice(0, 10), vividEdgeCalendar.id);
+    }
+  }
+
+  // Vodacom (South Africa) — its own distinct public holidays, none of
+  // which overlap the US federal calendar above.
+  await ensureHoliday("Heritage Day", "2026-09-24", vodacomCalendar.id);
+  await ensureHoliday("Day of Reconciliation", "2026-12-16", vodacomCalendar.id);
+  await ensureHoliday("Workers' Day", "2026-05-01", vodacomCalendar.id);
+
+  // ServiceNow — deliberately shares Thanksgiving with Vivid Edge's calendar
+  // so anyone on both (e.g. the ServiceNow BCM/BIA team below) sees two
+  // colors on that one date.
+  await ensureHoliday("Thanksgiving Day", "2026-11-26", serviceNowCalendar.id);
+  await ensureHoliday("ServiceNow Customer Appreciation Day", "2026-08-10", serviceNowCalendar.id);
 
   const vodacomSupport = await upsertProject({
     code: "VOD-01",
@@ -624,31 +681,27 @@ async function main() {
     weeksBack: 14,
   });
 
-  await prisma.holiday.upsert({
-    where: { id: 1 },
-    update: {},
-    create: { id: 1, name: "Founder's Day", date: new Date("2026-09-05") },
-  });
-
-  // Company holiday calendar defaults to the US federal calendar (spanning
-  // this and next year so both the current and upcoming Monthly views show
-  // holiday warnings without needing a manual sync first).
-  for (const year of [2026, 2027]) {
-    for (const h of computeUsFederalHolidays(year)) {
-      const existing = await prisma.holiday.findFirst({ where: { name: h.name, date: h.date } });
-      if (!existing) await prisma.holiday.create({ data: { name: h.name, date: h.date } });
-    }
-  }
-
   await prisma.organizationSettings.upsert({
     where: { id: 1 },
     update: { workWeekStartDay: "MONDAY" },
     create: { id: 1 },
   });
 
+  const allSeedUsers = [bhaskar, jeff, shibani, ramesh, ramakrishna, ravi, raghu, steven, indira, krishna, yuvaraj];
+
+  // Real user creation (single-create, bulk import) auto-enrolls into the
+  // standing Time Off & Admin project under Vivid Edge (see
+  // services/defaultProject.ts) — seed.ts creates its demo users directly
+  // via prisma.user.upsert, bypassing that, so without this every seed user
+  // would be missing the one membership that's supposed to guarantee
+  // everyone sees at least the Vivid Edge Corporate Calendar.
+  const { id: defaultProjectId } = await ensureDefaultProject();
+  for (const user of allSeedUsers) {
+    await enrollInDefaultProject(user.id, defaultProjectId);
+  }
+
   // A few seed notifications so the Notification Center and dashboard
   // announcement banner aren't empty on a fresh clone.
-  const allSeedUsers = [bhaskar, jeff, shibani, ramesh, ramakrishna, ravi, raghu, steven, indira, krishna, yuvaraj];
   for (const user of allSeedUsers) {
     const existing = await prisma.notification.findFirst({ where: { userId: user.id, type: "ANNOUNCEMENT" } });
     if (!existing) {

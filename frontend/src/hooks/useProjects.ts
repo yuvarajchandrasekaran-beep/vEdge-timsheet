@@ -17,13 +17,7 @@ export function useClients(enabled = true) {
     queryFn: async () => {
       const res = await apiClient.get<Client[] | ListResponse<Client>>("/clients");
       const data = res.data;
-      const list = Array.isArray(data) ? data : data.data;
-      return list.map((raw: any) => ({
-        id: raw.id,
-        name: raw.name,
-        status: raw.status,
-        projectCount: raw._count?.projects ?? 0,
-      })) as Client[];
+      return (Array.isArray(data) ? data : data.data) as Client[];
     },
     staleTime: 5 * 60 * 1000,
     // GET /clients is Super Admin / HR Admin / Project Admin only — an
@@ -39,6 +33,19 @@ export function useCreateClient() {
   return useMutation({
     mutationFn: async (input: { name: string; status?: "ACTIVE" | "INACTIVE" }) => {
       const res = await apiClient.post<Client>("/clients", input);
+      return res.data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["clients"] }),
+  });
+}
+
+/** Status and/or holiday calendar assignment — the Clients tab's inline
+ * controls (HR/Super Admin only; see /clients PUT's own role gate). */
+export function useUpdateClient() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...patch }: { id: string; status?: "ACTIVE" | "INACTIVE"; holidayCalendarId?: string | null }) => {
+      const res = await apiClient.put<Client>(`/clients/${id}`, patch);
       return res.data;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["clients"] }),

@@ -34,6 +34,8 @@ import { SubmitPeriodModal } from "../components/timesheet/SubmitPeriodModal";
 import { CompactViewToggle } from "../components/timesheet/CompactViewToggle";
 import { useShowWeekends } from "../hooks/useShowWeekends";
 import { useHolidayMap } from "../hooks/useHolidays";
+import { HolidayDots, holidayTooltip } from "../components/timesheet/HolidayDots";
+import type { Holiday } from "../types";
 import { LoadingBlock } from "../components/common/Spinner";
 import { IconChevronLeft, IconChevronRight, IconCopy, IconDownload, IconTrash } from "../components/common/icons";
 
@@ -641,7 +643,7 @@ function PeriodGridBlock({
   rowHasLockedHours: (row: GridRow) => boolean;
   projectColor: (projectId: string) => string;
   showWeekends: boolean;
-  holidayMap: Map<string, string>;
+  holidayMap: Map<string, Holiday[]>;
 }) {
   function weekStartOfDate(date: string): string {
     return getWeekStart(new Date(`${date}T00:00:00`));
@@ -685,19 +687,21 @@ function PeriodGridBlock({
           </tr>
           <tr>
             {visibleChunkDays.map((d) => {
-              const holidayName = holidayMap.get(d.date);
+              const dayHolidays = holidayMap.get(d.date) ?? [];
+              const isHoliday = dayHolidays.length > 0;
               return (
                 <th
                   key={d.date}
-                  title={holidayName ? `${holidayName} (company holiday)` : undefined}
+                  title={holidayTooltip(dayHolidays)}
                   className={clsx(
                     "px-1 pb-2 pt-1.5 text-center text-xs font-semibold uppercase tracking-wide",
-                    holidayName ? "bg-purple-600 text-white shadow-sm ring-2 ring-purple-300" : weekColor(weekIndexOfDate(d.date)).cell,
-                    !holidayName && (d.isWeekend ? "text-gray-400" : "text-gray-600")
+                    isHoliday ? "bg-slate-700 text-white shadow-sm" : weekColor(weekIndexOfDate(d.date)).cell,
+                    !isHoliday && (d.isWeekend ? "text-gray-400" : "text-gray-600")
                   )}
                 >
                   {d.label}
-                  <div className={clsx("text-[11px] font-normal normal-case", holidayName ? "text-purple-100" : "text-gray-500")}>{d.dayNumber}</div>
+                  <div className={clsx("text-[11px] font-normal normal-case", isHoliday ? "text-slate-300" : "text-gray-500")}>{d.dayNumber}</div>
+                  <HolidayDots holidays={dayHolidays} />
                 </th>
               );
             })}

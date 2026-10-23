@@ -58,7 +58,7 @@ export function Sidebar({
     },
     {
       to: "/holidays",
-      label: "Holiday Calendar",
+      label: "Holiday Calendars",
       icon: IconCalendar,
       roles: ["SUPER_ADMIN", "HR_ADMIN"],
     },

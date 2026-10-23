@@ -40,7 +40,7 @@ export default function TimesheetDayPage() {
   const weekStart = getWeekStart(parseISO(date));
   usePageHeader(format(parseISO(date), "EEEE, MMM d, yyyy"));
   const holidayMap = useHolidayMap(useMemo(() => [date], [date]));
-  const holidayName = holidayMap.get(date);
+  const dayHolidays = holidayMap.get(date) ?? [];
 
   const timesheetQuery = useMyTimesheet(weekStart);
   const projectsQuery = useProjects({ status: "ACTIVE", page: 1, pageSize: 100, mine: true });
@@ -277,14 +277,19 @@ export default function TimesheetDayPage() {
             onChange={(e) => setSearchParams({ date: e.target.value })}
             className={clsx(
               "rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-brand-primary",
-              holidayName ? "border-purple-400 bg-purple-100 text-purple-900 font-medium" : "border-gray-200 text-gray-700 focus:border-brand-primary"
+              dayHolidays.length > 0 ? "border-slate-400 bg-slate-100 text-slate-900 font-medium" : "border-gray-200 text-gray-700 focus:border-brand-primary"
             )}
           />
-          {holidayName && (
-            <span title={`${holidayName} (company holiday)`} className="rounded-full bg-purple-600 px-2.5 py-1 text-xs font-semibold text-white shadow-sm">
-              {holidayName}
+          {dayHolidays.map((h) => (
+            <span
+              key={h.id}
+              title={h.calendarName}
+              style={{ backgroundColor: h.calendarColor }}
+              className="rounded-full px-2.5 py-1 text-xs font-semibold text-white shadow-sm"
+            >
+              {h.name}
             </span>
-          )}
+          ))}
           {isEditable && (
             <button
               onClick={copyFromPreviousDay}

@@ -29,7 +29,6 @@ model Department {
   name  String
   code  String @unique
   users User[]
-  holidays Holiday[]
 
   @@map("departments")
 }
@@ -74,6 +73,12 @@ model Client {
   name     String    @unique
   status   String    @default("ACTIVE") // ACTIVE | INACTIVE
   projects Project[]
+
+  // A client has at most one holiday calendar at a time; the same calendar
+  // can be reused across several clients (e.g. all US-based clients sharing
+  // one US federal calendar) — see HolidayCalendar.
+  holidayCalendarId Int?
+  holidayCalendar   HolidayCalendar? @relation(fields: [holidayCalendarId], references: [id])
 
   @@map("clients")
 }
@@ -288,13 +293,29 @@ model ImportBatch {
 }
 
 model Holiday {
-  id           Int         @id @default(autoincrement())
-  name         String
-  date         DateTime
-  departmentId Int?
-  department   Department? @relation(fields: [departmentId], references: [id])
+  id         Int             @id @default(autoincrement())
+  name       String
+  date       DateTime
+  calendarId Int
+  calendar   HolidayCalendar @relation(fields: [calendarId], references: [id])
 
   @@map("holidays")
+}
+
+// One calendar's set of holidays, assignable to any number of Clients (but
+// each Client points to at most one). Replaces the single global holiday
+// list — different clients (and the internal "Vivid Edge" client that every
+// employee's standing Time Off & Admin project belongs to) can now each see
+// only the holidays relevant to them, color-coded per calendar so a day with
+// holidays from more than one calendar shows every color it's covered by.
+model HolidayCalendar {
+  id       Int       @id @default(autoincrement())
+  name     String    @unique
+  color    String // hex, e.g. "#1B4298"
+  clients  Client[]
+  holidays Holiday[]
+
+  @@map("holiday_calendars")
 }
 
 model OrganizationSettings {

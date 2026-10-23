@@ -62,6 +62,9 @@ export interface Client {
   name: string;
   status?: "ACTIVE" | "INACTIVE";
   projectCount?: number;
+  holidayCalendarId?: string | null;
+  holidayCalendarName?: string | null;
+  holidayCalendarColor?: string | null;
 }
 
 export type ProjectStatus = "ACTIVE" | "COMPLETED" | "ON_HOLD" | "ARCHIVED";
@@ -386,7 +389,18 @@ export interface Holiday {
   id: string;
   name: string;
   date: string; // YYYY-MM-DD
-  departmentId?: string | null;
+  calendarId: string;
+  calendarName?: string;
+  calendarColor?: string;
+}
+
+export interface HolidayCalendar {
+  id: string;
+  name: string;
+  color: string; // hex, e.g. "#1B4298"
+  clientIds?: string[];
+  clientNames?: string[];
+  holidayCount?: number;
 }
 
 export interface ClientTimesheetSendPreviewEntry {

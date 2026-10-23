@@ -10,7 +10,7 @@ Your available menu items and screens depend on your role — see
 **Section 9** for a summary of who can do what.
 
 **Finding your way around**: the left sidebar lists Dashboard, Timesheets,
-Approvals, Reports, Projects, Users, and Holiday Calendar, in that order —
+Approvals, Reports, Projects, Users, and Holiday Calendars, in that order —
 the items you'll use most often are near the top. Super Admins additionally
 get a **Settings** link pinned at the very bottom of the sidebar, below a
 divider. Two things live in the top bar instead of the sidebar: your
@@ -92,12 +92,14 @@ The system enforces a few rules on top of your own project's hour caps:
 | Under or over the standard 40h week | Nothing — this is fine on its own, no warning. |
 | A week totals **over 50 hours** | A warning at submit time asking you to double-check — you can still submit. |
 | A week totals **over 70 hours** | **Blocked.** You cannot submit until you fix the entries. |
-| Time logged on a US federal holiday | A warning at submit time asking you to confirm the entry is legitimate — you can still submit. |
+| Time logged on a date in one of your holiday calendars | A warning at submit time asking you to confirm the entry is legitimate — you can still submit. |
 | No comment anywhere in the submission | **Blocked.** At least one comment — on any single entry, or in the period's comments box — is required before you can submit; even one comment for one day is enough. |
 
 These checks run per calendar week (Mon–Sun) regardless of which view you
 used to enter the time, and the same rules apply whether you're submitting
-one week or a whole Monthly/Fortnight batch at once.
+one week or a whole Monthly/Fortnight batch at once. Which holidays you're
+warned about depends on your own project assignments — see **"Your holiday
+calendars"** at the end of Section 1.4.
 
 ### 1.4 What the colors mean
 
@@ -107,8 +109,21 @@ The grid checks your entries as you type, before you ever hit submit:
 |---|---|
 | Red cell + message | **Blocking.** You're not assigned to that project, it's outside the project's active dates, or you've gone over a configured hour cap. Fix it before you can save that entry. |
 | Amber highlight | **Warning.** Unusually high total for one day across all your projects (e.g. over 12 hours) — you can proceed, but confirm it's intentional. |
-| Purple day column | **Company holiday.** Hover the day header for the holiday's name. Informational only — you can still log time that day, and it's still the same "confirm it's legitimate" warning at submit time described above. |
+| Dark day column with small colored dots | **Holiday.** One dot per calendar with a holiday on that date — see "Your holiday calendars" below. Hover the day header for the holiday name(s) and which calendar each belongs to. Informational only — you can still log time that day, and it's still the same "confirm it's legitimate" warning at submit time described above. |
 | A cell that won't save | Usually a missing required note on a large entry — add the note and it will save. |
+
+**Your holiday calendars.** TimeSync doesn't use one single company-wide
+holiday list — each client can have its own holiday calendar, color-coded
+(set up by HR/Super Admin in **Holiday Calendars**, Section 5). You only ever
+see the calendars for clients you actually have a project under — nothing
+else. In practice, every employee is on the standing **Time Off & Admin**
+project (an internal "client"), so everyone sees at least that calendar's
+holidays by default; any other client you log time against adds its own
+calendar's holidays on top. If two of your calendars both have a holiday on
+the same date (e.g. your internal calendar and a client's both mark
+Thanksgiving), that day shows **both colored dots** — hovering the header
+lists every holiday and which calendar it's from. A client with no calendar
+assigned contributes no holidays at all.
 
 ### 1.5 Submitting
 
@@ -202,7 +217,11 @@ Click **Projects**. This screen has two tabs: **Projects** and **Clients**.
 - **Clients tab**: every project belongs to a client. Click **New Client** to
   add one (name and an Active/Inactive status) before it can be selected
   when creating a project. This tab also shows, for each client, how many
-  projects are currently linked to it.
+  projects are currently linked to it, and its assigned **Holiday Calendar**
+  (if any) — HR Admin and Super Admin get a dropdown right in this column to
+  assign or change it (Project Admin sees the assignment but can't change
+  it). See Section 5 for how holiday calendars work and why a client might
+  deliberately have none.
 - **New Project** (Projects tab): pick a client from the list you built on
   the Clients tab, give the project a code and name, set its dates, its
   billing type (**T&M** / **Fixed** / **Managed Services** — the contract
@@ -297,22 +316,54 @@ Click **Users**.
 
 ---
 
-## 5. Holiday Calendar (HR Admin & Super Admin)
+## 5. Holiday Calendars (HR Admin & Super Admin)
 
-Click **Holiday Calendar**. This is the company's list of holidays — it
-powers the "you're logging time on a holiday" warning employees see when
-submitting (Section 1.3).
+Click **Holiday Calendars**. Instead of one single company-wide holiday
+list, TimeSync has any number of **calendars** — each with its own name and
+color — and each client can be assigned one of them (or none). An employee
+only sees the calendars for clients they actually have a project under (see
+"Your holiday calendars" in Section 1.4), so this is how you give different
+clients different holidays (a US client's federal calendar, an India-based
+client's calendar, a client with no holidays tracked at all) instead of
+every employee seeing every holiday regardless of who they work for.
 
-- **Synced with the US federal calendar by default**: pick a year and click
+### 5.1 Managing calendars
+
+- **Switch calendars**: the dropdown at the top of the page lists every
+  calendar — pick one to see and manage its holidays. The color dot and
+  "Assigned to: …" line underneath show that calendar's color and which
+  client(s) currently use it (a calendar can be assigned to more than one
+  client, e.g. several US-based clients sharing the same federal calendar —
+  but each client only ever has one calendar at a time).
+- **New calendar**: give it a name and a color (pick one or type a hex code).
+  A brand-new calendar starts with no holidays and isn't assigned to any
+  client yet — add its holidays here, then assign it to a client from the
+  Clients tab (Section 3).
+- **Edit / delete a calendar**: the pencil and trash icons next to the
+  calendar dropdown rename/recolor it, or delete it. **Deleting is blocked**
+  while the calendar still has any holidays or is still assigned to a
+  client — remove its holidays and unassign it from any clients first. This
+  is deliberate: deleting a calendar out from under a client that's actively
+  using it would silently drop that client's holidays with no warning.
+
+### 5.2 Managing one calendar's holidays
+
+With a calendar selected:
+
+- **Synced with the US federal calendar on request**: pick a year and click
   **Sync US federal holidays for &lt;year&gt;** to add that year's 11 US
   federal holidays (New Year's Day, MLK Day, Washington's Birthday, Memorial
   Day, Juneteenth, Independence Day, Labor Day, Columbus Day, Veterans Day,
-  Thanksgiving, and Christmas). A holiday that falls on a weekend is filed
-  under its actual observed weekday, matching how the US government
-  publishes it. Syncing is safe to repeat — it only adds what's missing, it
-  never duplicates or overwrites a holiday you've already customized.
-- **Add / edit / delete**: use these to add a company-specific holiday (e.g.
-  a Founder's Day) or adjust a synced one.
+  Thanksgiving, and Christmas) **into the selected calendar**. A holiday that
+  falls on a weekend is filed under its actual observed weekday, matching how
+  the US government publishes it. Syncing is safe to repeat — it only adds
+  what's missing from that calendar, it never duplicates or overwrites a
+  holiday you've already customized. Sync it separately into each calendar
+  that should carry the US federal list — it doesn't propagate to other
+  calendars automatically.
+- **Add / edit / delete**: use these to add a calendar-specific holiday (e.g.
+  a client's own Founder's Day, or a regional holiday like Diwali or
+  Heritage Day) or adjust one you've already added.
 
 ---
 
@@ -401,7 +452,8 @@ alongside your notification list there.
 | Manage users (incl. bulk) | ✅ | ✅ | | |
 | Manage clients/projects/tasks | ✅ | view only | ✅ (own) | view (assigned) |
 | Add people to a project / its tasks | ✅ | | ✅ (own projects only) | |
-| Maintain the Holiday Calendar | ✅ | ✅ | | |
+| Maintain holiday calendars (create/edit/delete, manage holidays) | ✅ | ✅ | | |
+| Assign a client's holiday calendar | ✅ | ✅ | view only | |
 | Enable/send client timesheets | ✅ | | ✅ (own projects) | |
 | View reports | all, org-wide | all, org-wide | own projects | own data only |
 | Export reports | ✅ | ✅ | ✅ (own projects) | own data only |

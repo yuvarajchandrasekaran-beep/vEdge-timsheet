@@ -18,6 +18,7 @@ import { AddProjectRowTypeahead, type TaskOption } from "../components/timesheet
 import { SubmitConfirmModal } from "../components/timesheet/SubmitConfirmModal";
 import { IconChevronLeft, IconChevronRight, IconCopy, IconTrash } from "../components/common/icons";
 import { CommentOverlay } from "../components/timesheet/CommentOverlay";
+import { HolidayDots, holidayTooltip } from "../components/timesheet/HolidayDots";
 import { TimesheetViewSwitcher } from "../components/timesheet/TimesheetViewSwitcher";
 import { CompactViewToggle } from "../components/timesheet/CompactViewToggle";
 import { useShowWeekends } from "../hooks/useShowWeekends";
@@ -388,22 +389,23 @@ export default function TimesheetWeeklyPage() {
                   Project / Task
                 </th>
                 {visibleDays.map((d) => {
-                  const holidayName = holidayMap.get(d.date);
+                  const dayHolidays = holidayMap.get(d.date) ?? [];
                   return (
                     <th
                       key={d.date}
-                      title={holidayName ? `${holidayName} (company holiday)` : undefined}
+                      title={holidayTooltip(dayHolidays)}
                       className={clsx(
                         "px-2 pb-3 text-center text-xs font-semibold uppercase tracking-wide",
-                        holidayName
-                          ? "rounded-t-lg bg-purple-600 text-white shadow-sm ring-2 ring-purple-300"
+                        dayHolidays.length > 0
+                          ? "rounded-t-lg bg-slate-700 text-white shadow-sm"
                           : d.isWeekend
                           ? "text-gray-400"
                           : "text-gray-600"
                       )}
                     >
                       {d.label}
-                      <div className={clsx("text-[11px] font-normal normal-case", holidayName ? "text-purple-100" : "text-gray-500")}>{d.dayNumber}</div>
+                      <div className={clsx("text-[11px] font-normal normal-case", dayHolidays.length > 0 ? "text-slate-300" : "text-gray-500")}>{d.dayNumber}</div>
+                      <HolidayDots holidays={dayHolidays} />
                     </th>
                   );
                 })}

@@ -2,7 +2,8 @@ import { useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { usePageHeader } from "../hooks/usePageHeader";
-import { useClients, useDeleteProject, useProjects } from "../hooks/useProjects";
+import { useClients, useDeleteProject, useProjects, useUpdateClient } from "../hooks/useProjects";
+import { useHolidayCalendars } from "../hooks/useHolidays";
 import type { ProjectStatus } from "../types";
 import { getApiErrorMessage } from "../api/client";
 import { StatusBadge } from "../components/common/Badge";
@@ -16,6 +17,7 @@ import { ProjectDetailModal } from "../components/projects/ProjectDetailModal";
 import { formatDate, formatHoursDecimal } from "../utils/format";
 import { ProgressBar } from "../components/common/ProgressBar";
 import { IconEdit, IconPlus, IconSearch, IconTrash, IconUpload, IconUsers } from "../components/common/icons";
+import { useToast } from "../components/common/Toast";
 
 type Tab = "projects" | "clients";
 const PAGE_SIZE = 8;
@@ -39,6 +41,9 @@ export default function ProjectsPage() {
   // firing a request that's guaranteed to fail, and hide the Clients tab
   // (client management isn't part of their "view assigned projects" access).
   const canViewClients = hasRole("SUPER_ADMIN", "HR_ADMIN", "PROJECT_ADMIN");
+  // Matches /clients PUT's own role gate — a Project Admin can see which
+  // calendar a client has, but only HR/Super Admin can change it.
+  const canManageCalendars = hasRole("SUPER_ADMIN", "HR_ADMIN");
 
   const [tab, setTab] = useState<Tab>("projects");
   const [search, setSearch] = useState("");
@@ -52,8 +57,11 @@ export default function ProjectsPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const { data: clients } = useClients(canViewClients);
+  const { data: calendars } = useHolidayCalendars(canManageCalendars);
   const projectsQuery = useProjects({ status: statusFilter, clientId: clientFilter, search, page, pageSize: PAGE_SIZE });
   const deleteProject = useDeleteProject();
+  const updateClient = useUpdateClient();
+  const { showToast } = useToast();
 
   const projects = projectsQuery.data?.data ?? [];
   const total = projectsQuery.data?.meta.total ?? 0;
@@ -280,12 +288,13 @@ export default function ProjectsPage() {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[500px]">
+                <table className="w-full min-w-[640px]">
                   <thead>
                     <tr className="border-b border-gray-100 text-left text-xs font-semibold uppercase tracking-wide text-gray-400">
                       <th className="px-4 py-3">Name</th>
                       <th className="px-4 py-3">Status</th>
                       <th className="px-4 py-3">Projects</th>
+                      <th className="px-4 py-3">Holiday Calendar</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -296,6 +305,39 @@ export default function ProjectsPage() {
                           <StatusBadge status={c.status ?? "ACTIVE"} kind="user" />
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-600">{c.projectCount ?? 0}</td>
+                        <td className="px-4 py-3">
+                          {canManageCalendars ? (
+                            <select
+                              value={c.holidayCalendarId ?? ""}
+                              disabled={updateClient.isPending}
+                              onChange={(e) => {
+                                const holidayCalendarId = e.target.value || null;
+                                updateClient.mutate(
+                                  { id: c.id, holidayCalendarId },
+                                  {
+                                    onError: (err) =>
+                                      showToast(getApiErrorMessage(err, "Couldn't update this client's calendar."), "error"),
+                                  }
+                                );
+                              }}
+                              className="input w-48 py-1.5 text-sm"
+                            >
+                              <option value="">No calendar</option>
+                              {calendars?.map((cal) => (
+                                <option key={cal.id} value={cal.id}>
+                                  {cal.name}
+                                </option>
+                              ))}
+                            </select>
+                          ) : c.holidayCalendarName ? (
+                            <span className="inline-flex items-center gap-1.5 text-sm text-gray-700">
+                              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: c.holidayCalendarColor ?? "#94A3B8" }} />
+                              {c.holidayCalendarName}
+                            </span>
+                          ) : (
+                            <span className="text-sm text-gray-400">No calendar</span>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

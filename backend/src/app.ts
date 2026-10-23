@@ -21,6 +21,7 @@ import auditLogsRoutes from "./routes/auditLogs";
 import settingsRoutes from "./routes/settings";
 import dashboardRoutes from "./routes/dashboard";
 import holidaysRoutes from "./routes/holidays";
+import holidayCalendarsRoutes from "./routes/holidayCalendars";
 import clientSendsRoutes from "./routes/clientSends";
 import delegationsRoutes from "./routes/delegations";
 
@@ -57,6 +58,7 @@ export function createApp() {
   v1.use("/settings", settingsRoutes);
   v1.use("/dashboard", dashboardRoutes);
   v1.use("/holidays", holidaysRoutes);
+  v1.use("/holiday-calendars", holidayCalendarsRoutes);
   v1.use("/client-sends", clientSendsRoutes);
   v1.use("/delegations", delegationsRoutes);
   app.use("/api/v1", v1);
