@@ -6,6 +6,14 @@ All notable changes to TimeSync are recorded here, newest first.
 
 ---
 
+## v1.5.0 — 2026-10-23
+
+**New: per-client holiday calendars, replacing the single global calendar.** Previously every employee saw the same one company-wide holiday list regardless of who they worked for. HR/Super Admin can now create any number of named, color-coded calendars and assign one to each client (the same calendar can cover several clients, but a client only ever has one at a time) from the Projects page's Clients tab. An employee only ever sees the calendars for clients they actually have a project under — nothing more — so a day covered by more than one of their calendars shows a colored dot for each one, instead of a single generic highlight. See **Holiday Calendars** (Section 5) and **"Your holiday calendars"** (Section 1.4) in the User Manual.
+
+All existing holidays were preserved during the migration — carried forward onto a new "Vivid Edge Corporate Calendar," automatically assigned to the Vivid Edge client, so nothing already on the calendar was lost or changed in how it behaves by default.
+
+---
+
 ## v1.4.0 — 2026-10-09
 
 Follow-up pass on the 6 Oct QA log's remaining "Enquiry" items, plus one new standing feature.
