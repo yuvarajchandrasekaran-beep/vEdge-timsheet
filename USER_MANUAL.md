@@ -409,6 +409,8 @@ Available reports:
 | Overtime | Entries exceeding your configured daily/weekly thresholds |
 | Audit Trail | Every create/update/approve/reject action, with who and when (Super Admin only) |
 | Client Audit Report | Client-submittable proof of hours: every project under a chosen client, the resources who logged time on each, and their hours |
+| Weekly Summary by Employee | Each employee's billable hours per week, with a monthly subtotal — a ready-to-send billing summary |
+| Daily Timesheet | A printable, signable timesheet per employee per week — day-by-day hours, split billable/non-billable |
 
 The dashboard view adds a utilization donut chart and a trend line so you can
 see the shape of the data before drilling into the table.
@@ -421,6 +423,31 @@ a client would want as proof of billed hours. Its CSV/Excel/PDF export goes a
 level deeper than the on-screen summary: one row per individual timesheet
 entry (date, task, hours, approval status), so the exported file is a
 complete, traceable audit trail rather than just the aggregated totals.
+
+**Weekly Summary by Employee** groups the result under each employee (name
+and job title), then under the month their week starts in — each week shows
+its billable hours and that week's own comments (as "Remarks"), with a bold
+subtotal row per month. Only billable time counts toward these hours;
+non-billable time (PTO, internal admin) isn't included, since this is meant
+to go straight to a client as a billing summary.
+
+**Daily Timesheet** builds one printable sheet per employee per week —
+employee and manager details, every day Monday through Sunday (even ones
+with nothing logged), hours split into Billable and Non-Billable, a week
+total, and blank signature lines for the employee and their manager. The PDF
+export is the one to use for this report: it prints one full page per sheet
+in the exact layout you'd hand to a client for sign-off, matching what used
+to be built by hand in Excel. If your filters match a lot of employee-weeks,
+the export caps at 60 sheets — narrow the date range or pick a client/project
+to see the rest.
+
+**Customizing columns**: on any report except Project Utilization, Client
+Audit, Weekly Summary, and Daily Timesheet (whose layouts are fixed), click
+**Columns** next to the export buttons to hide columns you don't need and
+reorder the rest by dragging them with the up/down arrows. This is remembered
+on your device for next time, and carries through to whatever you export —
+hide a column here and it's gone from the downloaded file too, not just the
+screen.
 
 **Exporting**: click **PDF**, **Excel**, or **CSV** at any time — the export
 includes the filters you applied, who generated it, and a timestamp.

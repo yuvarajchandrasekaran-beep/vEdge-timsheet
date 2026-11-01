@@ -38,6 +38,12 @@ const HEADER_OVERRIDES: Record<string, string> = {
   userId: "User ID",
   entryCount: "Entries",
   totalHours: "Total Hours",
+  jobTitle: "Job Title",
+  weekStart: "Week Start",
+  weekEnd: "Week End",
+  weekEnding: "Week Ending",
+  billableHours: "Billable Hours",
+  nonBillableHours: "Non-Billable Hours",
 };
 
 export function humanizeHeader(key: string): string {

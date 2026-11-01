@@ -82,6 +82,8 @@ export const REPORT_KEYS = [
   "overtime",
   "audit-trail",
   "client-audit",
+  "weekly-summary",
+  "daily-timesheet",
 ] as const;
 
 export type ReportKey = (typeof REPORT_KEYS)[number];

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   CartesianGrid,
   Cell,
@@ -11,13 +11,20 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { useReport, useClientAuditReport, useExportReport, useScheduleReport } from "../hooks/useReports";
+import {
+  useReport,
+  useClientAuditReport,
+  useWeeklySummaryReport,
+  useDailyTimesheetReport,
+  useExportReport,
+  useScheduleReport,
+} from "../hooks/useReports";
 import { useAuth } from "../hooks/useAuth";
 import { usePageHeader } from "../hooks/usePageHeader";
 import { useClients } from "../hooks/useProjects";
 import { useDepartments } from "../hooks/useDepartments";
 import { getApiErrorMessage } from "../api/client";
-import type { ReportFilters, ReportKey, ProjectUtilizationRow } from "../types";
+import type { ReportFilters, ReportKey, ProjectUtilizationRow, WeeklySummaryEmployee } from "../types";
 import { ROLE_LABELS } from "../types";
 import { LoadingBlock } from "../components/common/Spinner";
 import { ErrorState } from "../components/common/ErrorState";
@@ -26,7 +33,7 @@ import { ProgressBar } from "../components/common/ProgressBar";
 import { Pagination } from "../components/common/Pagination";
 import { Modal } from "../components/common/Modal";
 import { Spinner } from "../components/common/Spinner";
-import { IconBarChart, IconChevronDown, IconDownload } from "../components/common/icons";
+import { IconBarChart, IconChevronDown, IconDownload, IconSettings } from "../components/common/icons";
 import { formatDate, humanizeHeader, formatReportCell } from "../utils/format";
 import clsx from "clsx";
 
@@ -38,6 +45,8 @@ const REPORT_OPTIONS: { value: ReportKey; label: string }[] = [
   { value: "overtime", label: "Overtime" },
   { value: "audit-trail", label: "Audit Trail" },
   { value: "client-audit", label: "Client Audit Report" },
+  { value: "weekly-summary", label: "Weekly Summary by Employee" },
+  { value: "daily-timesheet", label: "Daily Timesheet" },
 ];
 
 // Mirrors backend/src/routes/reports.ts's INDIVIDUAL_USER_REPORT_KEYS — the
@@ -84,13 +93,24 @@ export default function ReportsPage() {
   }
 
   const isClientAudit = reportKey === "client-audit";
+  const isWeeklySummary = reportKey === "weekly-summary";
+  const isDailyTimesheet = reportKey === "daily-timesheet";
+  const usesSpecializedView = isClientAudit || isWeeklySummary || isDailyTimesheet;
   // GET /clients 403s for an Individual User — skip the call for them rather
   // than firing a request that's guaranteed to fail.
   const { data: clients } = useClients(!isIndividualUser);
   const { data: departments } = useDepartments();
-  const reportQuery = useReport(reportKey, applied, !isClientAudit);
+  const reportQuery = useReport(reportKey, applied, !usesSpecializedView);
   const clientAuditQuery = useClientAuditReport(applied, isClientAudit);
+  const weeklySummaryQuery = useWeeklySummaryReport(applied, isWeeklySummary);
+  const dailyTimesheetQuery = useDailyTimesheetReport(applied, isDailyTimesheet);
   const exportMutation = useExportReport();
+  // Which columns (and in what order) the generic table/export should use —
+  // only meaningful for the dynamic-column reports; null means "use
+  // everything, in the server's own order" (every report before this existed
+  // behaved exactly that way, so that's the no-op default).
+  const [exportColumns, setExportColumns] = useState<string[] | null>(null);
+  useEffect(() => setExportColumns(null), [reportKey]);
 
   const report = reportQuery.data;
 
@@ -177,6 +197,18 @@ export default function ReportsPage() {
           onExport={(format) => exportMutation.mutate({ reportKey, format, filters: applied })}
           exporting={exportMutation.isPending}
         />
+      ) : isWeeklySummary ? (
+        <WeeklySummarySection
+          query={weeklySummaryQuery}
+          onExport={(format) => exportMutation.mutate({ reportKey, format, filters: applied })}
+          exporting={exportMutation.isPending}
+        />
+      ) : isDailyTimesheet ? (
+        <DailyTimesheetSection
+          query={dailyTimesheetQuery}
+          onExport={(format) => exportMutation.mutate({ reportKey, format, filters: applied })}
+          exporting={exportMutation.isPending}
+        />
       ) : reportQuery.isLoading ? (
         <LoadingBlock label="Generating report…" />
       ) : reportQuery.isError ? (
@@ -237,10 +269,17 @@ export default function ReportsPage() {
             <div className="flex flex-col gap-3 border-b border-gray-100 p-4 sm:flex-row sm:items-center sm:justify-between">
               <h2 className="text-sm font-semibold text-gray-900">{REPORT_OPTIONS.find((o) => o.value === reportKey)?.label}</h2>
               <div className="flex gap-2">
+                {reportKey !== "project-utilization" && report && (
+                  <ColumnsButton
+                    reportKey={reportKey}
+                    allColumns={Object.keys((report.rows as Record<string, unknown>[])[0] ?? {})}
+                    onChange={setExportColumns}
+                  />
+                )}
                 {(["pdf", "xlsx", "csv"] as const).map((fmt) => (
                   <button
                     key={fmt}
-                    onClick={() => exportMutation.mutate({ reportKey, format: fmt, filters: applied })}
+                    onClick={() => exportMutation.mutate({ reportKey, format: fmt, filters: applied, columns: exportColumns ?? undefined })}
                     disabled={exportMutation.isPending}
                     className="btn-secondary px-3 py-1.5 text-xs uppercase"
                   >
@@ -280,7 +319,7 @@ export default function ReportsPage() {
                   </tbody>
                 </table>
               ) : (
-                <GenericReportTable rows={report.rows as Record<string, unknown>[]} />
+                <GenericReportTable rows={report.rows as Record<string, unknown>[]} columns={exportColumns} />
               )}
             </div>
             <p className="border-t border-gray-100 px-4 py-2.5 text-xs text-gray-400">
@@ -394,6 +433,196 @@ function ClientAuditSection({
   );
 }
 
+function WeeklySummarySection({
+  query,
+  onExport,
+  exporting,
+}: {
+  query: ReturnType<typeof useWeeklySummaryReport>;
+  onExport: (format: "pdf" | "xlsx" | "csv") => void;
+  exporting: boolean;
+}) {
+  if (query.isLoading) return <LoadingBlock label="Generating report…" />;
+  if (query.isError) return <ErrorState error={query.error} onRetry={() => query.refetch()} />;
+
+  const report = query.data;
+  if (!report || report.employees.length === 0) {
+    return <EmptyState title="No billable hours for this range" description="Try widening your date range or clearing filters." />;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-2xl bg-white p-5 shadow-soft ring-1 ring-gray-100">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-base font-bold text-gray-900">Weekly Summary by Employee</h2>
+            <p className="mt-0.5 text-sm text-gray-500">
+              {report.employees.length} {report.employees.length === 1 ? "employee" : "employees"} · billable hours only
+            </p>
+          </div>
+          <div className="flex gap-2">
+            {(["pdf", "xlsx", "csv"] as const).map((fmt) => (
+              <button key={fmt} onClick={() => onExport(fmt)} disabled={exporting} className="btn-secondary px-3 py-1.5 text-xs uppercase">
+                <IconDownload size={13} />
+                {fmt}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {report.employees.map((emp) => (
+        <div key={emp.userId} className="overflow-hidden rounded-2xl bg-white shadow-soft ring-1 ring-gray-100">
+          <div className="flex items-center justify-between bg-brand-primary px-4 py-2.5">
+            <span className="text-sm font-semibold text-white">{emp.name}</span>
+            <span className="text-xs text-blue-100">{emp.jobTitle}</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[480px]">
+              <thead>
+                <tr className="border-b border-gray-100 text-left text-xs font-semibold uppercase tracking-wide text-gray-400">
+                  <th className="px-4 py-2.5">Week Start</th>
+                  <th className="px-4 py-2.5">Week End</th>
+                  <th className="px-4 py-2.5 text-right">Billable Hours</th>
+                  <th className="px-4 py-2.5">Remarks</th>
+                </tr>
+              </thead>
+              <tbody>
+                {emp.months.map((month) => (
+                  <Fragment key={month.month}>
+                    {month.weeks.map((w) => (
+                      <tr key={w.weekStart} className="border-b border-gray-50">
+                        <td className="px-4 py-2 text-sm text-gray-700">{formatDate(w.weekStart, "d-MMM-yy")}</td>
+                        <td className="px-4 py-2 text-sm text-gray-700">{formatDate(w.weekEnd, "d-MMM-yy")}</td>
+                        <td className="px-4 py-2 text-right text-sm text-gray-700">{w.billableHours}</td>
+                        <td className="px-4 py-2 text-sm text-gray-500">{w.remarks || "—"}</td>
+                      </tr>
+                    ))}
+                    <tr className="border-b border-gray-100 bg-gray-50 font-semibold">
+                      <td className="px-4 py-2 text-sm text-gray-700" colSpan={2}>
+                        {month.month}
+                      </td>
+                      <td className="px-4 py-2 text-right text-sm text-gray-900">{month.monthTotal}</td>
+                      <td />
+                    </tr>
+                  </Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
+
+      <p className="px-1 text-xs text-gray-400">
+        Generated {report.generatedAt ? formatDate(report.generatedAt, "MMM d, yyyy h:mm a") : "just now"}
+      </p>
+    </div>
+  );
+}
+
+function DailyTimesheetSection({
+  query,
+  onExport,
+  exporting,
+}: {
+  query: ReturnType<typeof useDailyTimesheetReport>;
+  onExport: (format: "pdf" | "xlsx" | "csv") => void;
+  exporting: boolean;
+}) {
+  if (query.isLoading) return <LoadingBlock label="Generating report…" />;
+  if (query.isError) return <ErrorState error={query.error} onRetry={() => query.refetch()} />;
+
+  const report = query.data;
+  if (!report || report.sheets.length === 0) {
+    return <EmptyState title="No time logged for this range" description="Try widening your date range or clearing filters." />;
+  }
+
+  const DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-2xl bg-white p-5 shadow-soft ring-1 ring-gray-100">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-base font-bold text-gray-900">Daily Timesheet</h2>
+            <p className="mt-0.5 text-sm text-gray-500">
+              {report.sheets.length} employee-week {report.sheets.length === 1 ? "sheet" : "sheets"}
+              {report.truncated ? ` of ${report.totalSheets} — narrow the filters above to see the rest` : ""} · PDF prints one
+              signable page per sheet
+            </p>
+          </div>
+          <div className="flex gap-2">
+            {(["pdf", "xlsx", "csv"] as const).map((fmt) => (
+              <button key={fmt} onClick={() => onExport(fmt)} disabled={exporting} className="btn-secondary px-3 py-1.5 text-xs uppercase">
+                <IconDownload size={13} />
+                {fmt}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {report.sheets.map((sheet) => (
+        <div key={`${sheet.userId}-${sheet.weekStart}`} className="overflow-hidden rounded-2xl bg-white shadow-soft ring-1 ring-gray-100">
+          <div className="flex flex-col gap-1 border-b border-gray-100 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900">{sheet.employeeName}</h3>
+              <p className="text-xs text-gray-500">
+                {formatDate(sheet.weekStart, "MMM d")} – {formatDate(sheet.weekEnd, "MMM d, yyyy")} · Manager: {sheet.manager}
+              </p>
+            </div>
+            <span className="text-sm font-semibold text-gray-900">{sheet.totalHours}h total</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px]">
+              <thead>
+                <tr className="border-b border-gray-100 text-left text-xs font-semibold uppercase tracking-wide text-gray-400">
+                  <th className="px-3 py-2">Day</th>
+                  <th className="px-3 py-2">Date</th>
+                  <th className="px-3 py-2">Project</th>
+                  <th className="px-3 py-2">Task</th>
+                  <th className="px-3 py-2 text-right">Billable</th>
+                  <th className="px-3 py-2 text-right">Non-Billable</th>
+                  <th className="px-3 py-2 text-right">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sheet.days.map((d, i) => (
+                  <tr key={d.date} className="border-b border-gray-50">
+                    <td className="px-3 py-2 text-sm text-gray-700">{DOW[i]}</td>
+                    <td className="px-3 py-2 text-sm text-gray-700">{formatDate(d.date, "M/d/yy")}</td>
+                    <td className="px-3 py-2 text-sm text-gray-600">{d.projectName || "—"}</td>
+                    <td className="px-3 py-2 text-sm text-gray-600">{d.task || "—"}</td>
+                    <td className="px-3 py-2 text-right text-sm text-gray-700">{d.billableHours || ""}</td>
+                    <td className="px-3 py-2 text-right text-sm text-gray-700">{d.nonBillableHours || ""}</td>
+                    <td className="px-3 py-2 text-right text-sm font-medium text-gray-900">
+                      {d.billableHours + d.nonBillableHours || ""}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="bg-gray-50 font-semibold">
+                  <td className="px-3 py-2 text-sm text-gray-700" colSpan={4}>
+                    Total hours
+                  </td>
+                  <td className="px-3 py-2 text-right text-sm text-gray-900">{sheet.totalBillable}</td>
+                  <td className="px-3 py-2 text-right text-sm text-gray-900">{sheet.totalNonBillable}</td>
+                  <td className="px-3 py-2 text-right text-sm text-gray-900">{sheet.totalHours}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      ))}
+
+      <p className="px-1 text-xs text-gray-400">
+        Generated {report.generatedAt ? formatDate(report.generatedAt, "MMM d, yyyy h:mm a") : "just now"}
+      </p>
+    </div>
+  );
+}
+
 /**
  * Renders any report's real rows as a table whose columns are derived from
  * the row data itself — used for every report key except Project
@@ -424,8 +653,147 @@ function compareReportValues(a: unknown, b: unknown): number {
   return aStr.localeCompare(bStr);
 }
 
-function GenericReportTable({ rows }: { rows: Record<string, unknown>[] }) {
-  const headers = Object.keys(rows[0] ?? {});
+interface ColumnPref {
+  key: string;
+  visible: boolean;
+}
+
+function loadColumnPrefs(reportKey: ReportKey, allColumns: string[]): ColumnPref[] {
+  try {
+    const saved = localStorage.getItem(`reports.columns.${reportKey}`);
+    if (saved) {
+      const parsed: ColumnPref[] = JSON.parse(saved);
+      const known = new Set(parsed.map((p) => p.key));
+      // Drop any column the report no longer has, and append any new one
+      // (visible by default) rather than silently hiding it.
+      const merged = parsed.filter((p) => allColumns.includes(p.key));
+      for (const c of allColumns) if (!known.has(c)) merged.push({ key: c, visible: true });
+      return merged;
+    }
+  } catch {
+    // Cleared/blocked localStorage just means no persisted preference yet.
+  }
+  return allColumns.map((key) => ({ key, visible: true }));
+}
+
+/**
+ * Jeff Cockman's "Future Enhancement" ask (see RELEASE_NOTES.md): lets a
+ * viewer hide columns they don't need and reorder the rest, remembered
+ * per-report-key in localStorage (a per-viewer convenience, like other
+ * saved display preferences in this app — never synced or read by the
+ * server). The chosen order/visibility also flows into the PDF/Excel/CSV
+ * export via the parent's `onChange`, so hiding a column here hides it in
+ * what gets downloaded too.
+ */
+function ColumnsButton({
+  reportKey,
+  allColumns,
+  onChange,
+}: {
+  reportKey: ReportKey;
+  allColumns: string[];
+  onChange: (visibleOrdered: string[] | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [prefs, setPrefs] = useState<ColumnPref[]>(() => loadColumnPrefs(reportKey, allColumns));
+
+  function notify(next: ColumnPref[]) {
+    const visible = next.filter((p) => p.visible).map((p) => p.key);
+    // "Every column, in the default order" is exactly today's pre-existing
+    // behavior — pass null so export keeps using the server's own shape
+    // rather than a redundant explicit list.
+    const isDefault = visible.length === allColumns.length && visible.every((c, i) => c === allColumns[i]);
+    onChange(isDefault ? null : visible);
+  }
+
+  const allColumnsKey = allColumns.join(",");
+  useEffect(() => {
+    const next = loadColumnPrefs(reportKey, allColumns);
+    setPrefs(next);
+    notify(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportKey, allColumnsKey]);
+
+  function persist(next: ColumnPref[]) {
+    setPrefs(next);
+    try {
+      localStorage.setItem(`reports.columns.${reportKey}`, JSON.stringify(next));
+    } catch {
+      // Per-viewer convenience only — fine if this silently doesn't persist.
+    }
+    notify(next);
+  }
+
+  function toggleVisible(key: string) {
+    persist(prefs.map((p) => (p.key === key ? { ...p, visible: !p.visible } : p)));
+  }
+
+  function move(index: number, dir: -1 | 1) {
+    const target = index + dir;
+    if (target < 0 || target >= prefs.length) return;
+    const next = [...prefs];
+    [next[index], next[target]] = [next[target], next[index]];
+    persist(next);
+  }
+
+  return (
+    <div className="relative">
+      <button onClick={() => setOpen((o) => !o)} className="btn-secondary px-3 py-1.5 text-xs">
+        <IconSettings size={13} />
+        Columns
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full z-20 mt-1 w-64 rounded-xl border border-gray-200 bg-white p-2 shadow-lg">
+            <div className="flex items-center justify-between px-2 py-1">
+              <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Columns</span>
+              <button onClick={() => persist(allColumns.map((key) => ({ key, visible: true })))} className="text-xs font-medium text-brand-primary hover:underline">
+                Reset
+              </button>
+            </div>
+            <div className="max-h-64 overflow-y-auto">
+              {prefs.map((p, i) => (
+                <div key={p.key} className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-gray-50">
+                  <input
+                    type="checkbox"
+                    checked={p.visible}
+                    onChange={() => toggleVisible(p.key)}
+                    className="h-4 w-4 rounded border-gray-300 text-brand-primary focus:ring-brand-primary"
+                  />
+                  <span className="flex-1 truncate text-sm text-gray-700">{humanizeHeader(p.key)}</span>
+                  <button
+                    onClick={() => move(i, -1)}
+                    disabled={i === 0}
+                    aria-label="Move up"
+                    className="rounded p-0.5 text-gray-400 hover:text-gray-700 disabled:opacity-30"
+                  >
+                    <IconChevronDown size={12} className="rotate-180" />
+                  </button>
+                  <button
+                    onClick={() => move(i, 1)}
+                    disabled={i === prefs.length - 1}
+                    aria-label="Move down"
+                    className="rounded p-0.5 text-gray-400 hover:text-gray-700 disabled:opacity-30"
+                  >
+                    <IconChevronDown size={12} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function GenericReportTable({ rows, columns }: { rows: Record<string, unknown>[]; columns?: string[] | null }) {
+  const allColumns = Object.keys(rows[0] ?? {});
+  // `columns`, when set, is the Columns button's chosen subset/order — fall
+  // back to every column in the server's own order (today's behavior, and
+  // what every report that predates this control still gets).
+  const headers = columns && columns.length > 0 ? columns.filter((c) => allColumns.includes(c)) : allColumns;
   const dateKey = headers.find(isDateLikeKey) ?? null;
   // Exports (PDF/Excel/CSV) and the on-screen preview intentionally share
   // the same full, unfiltered `rows` — only how this table *displays* them

@@ -277,7 +277,9 @@ export type ReportKey =
   | "missing-timesheets"
   | "overtime"
   | "audit-trail"
-  | "client-audit";
+  | "client-audit"
+  | "weekly-summary"
+  | "daily-timesheet";
 
 export interface ReportFilters {
   dateFrom?: string;
@@ -344,6 +346,63 @@ export interface ClientAuditReport {
   projects: ClientAuditProject[];
   grandTotalHours: number;
   grandTotalResources: number;
+}
+
+export interface WeeklySummaryWeek {
+  weekStart: string;
+  weekEnd: string;
+  billableHours: number;
+  remarks: string;
+}
+
+export interface WeeklySummaryMonth {
+  month: string;
+  weeks: WeeklySummaryWeek[];
+  monthTotal: number;
+}
+
+export interface WeeklySummaryEmployee {
+  userId: string;
+  employeeId: string;
+  name: string;
+  jobTitle: string;
+  months: WeeklySummaryMonth[];
+  grandTotal: number;
+}
+
+export interface WeeklySummaryReport {
+  reportKey: "weekly-summary";
+  generatedAt: string;
+  employees: WeeklySummaryEmployee[];
+}
+
+export interface DailyTimesheetDay {
+  date: string;
+  projectName: string;
+  task: string;
+  billableHours: number;
+  nonBillableHours: number;
+}
+
+export interface DailyTimesheetSheet {
+  userId: string;
+  employeeName: string;
+  employeeEmail: string;
+  manager: string;
+  weekStart: string;
+  weekEnd: string;
+  days: DailyTimesheetDay[];
+  totalBillable: number;
+  totalNonBillable: number;
+  totalHours: number;
+}
+
+export interface DailyTimesheetReport {
+  reportKey: "daily-timesheet";
+  generatedAt: string;
+  sheets: DailyTimesheetSheet[];
+  truncated: boolean;
+  totalSheets: number;
 }
 
 // ---- API envelope types ----

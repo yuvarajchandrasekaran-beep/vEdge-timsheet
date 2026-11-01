@@ -506,11 +506,12 @@ bug caught during this build — see `routes/dashboard.ts`'s and
 
 `services/reports.ts` implements the six standard reports from spec 4.6.1
 (`timesheet-summary`, `project-utilization`, `approval-compliance`,
-`missing-timesheets`, `overtime`, `audit-trail`) plus a seventh,
-`client-audit` (added post-spec — see below), as plain functions returning
-row arrays, filtered by `dateFrom/dateTo/clientId/projectId/departmentId/
-userId/status`. `routes/reports.ts` serves the same data as JSON
-(`GET /reports/{key}`) or as a file (`GET /reports/{key}/export?format=`):
+`missing-timesheets`, `overtime`, `audit-trail`) plus three added on
+request, post-spec: `client-audit`, `weekly-summary`, and `daily-timesheet`
+(the latter two below) — as plain functions returning row arrays, filtered
+by `dateFrom/dateTo/clientId/projectId/departmentId/userId/status`.
+`routes/reports.ts` serves the same data as JSON (`GET /reports/{key}`) or
+as a file (`GET /reports/{key}/export?format=`):
 
 `GET /reports/{key}` returns project-utilization-shaped data
 (`getUtilizationOverview`) only for `reportKey === "project-utilization"`,
@@ -552,6 +553,52 @@ Project Admin owning exactly one project gets `filters.projectId` set
 automatically) — a Project Admin who manages projects across multiple
 clients still must pick one client explicitly, same as everyone else.
 
+**`weekly-summary`** and **`daily-timesheet`** — added for a PM who had been
+hand-building these two layouts in Excel every month to get client sign-off
+(M/I Homes, specifically) on billed hours; see RELEASE_NOTES.md. Like
+`client-audit`, each has its own on-screen shape *and* its own flat,
+export-matching row shape, for the same reason: the screen's grouping isn't
+one-row-per-record, so forcing the export into that shape (or the preview
+into the flat shape) would lose the structure either way.
+
+- `getWeeklySummaryReport` / `"weekly-summary"` in `getReportData` — every
+  employee who logged *billable* (`ProjectTask.billable`) time in range, their
+  weeks grouped under the month their week **starts** in (a week straddling a
+  month boundary counts entirely under its start month), with a month
+  subtotal. Non-billable time is deliberately excluded — this is a
+  billing-hours view. "Remarks" is that week's own `Timesheet.weekNotes`.
+  PDF export doesn't go through `renderPdfTable` — a dedicated
+  `renderWeeklySummaryPdf` draws a colored title band (name + job title) per
+  employee instead, matching the hand-built original closer than a flat
+  table would.
+- `getDailyTimesheetReport` / `"daily-timesheet"` — one "sheet" per employee
+  per week they logged any time: every day Monday-Sunday (including empty
+  ones), split into billable/non-billable hours, with a resolved "Manager"
+  (that week's busiest project's Project Admin, falling back to the
+  employee's own `User.manager`) and a week total. Capped at
+  `MAX_DAILY_TIMESHEET_SHEETS` (60) sheets — meant to be run scoped to one
+  client/project and a short range, not the whole org's history. PDF export
+  (`renderDailyTimesheetPdf`) renders one literal **portrait** page per
+  sheet — logo, employee/manager/e-mail block, the day table, a total row,
+  and two blank signature lines — reproducing the original client-signable
+  timesheet exactly, down to format (`routes/reports.ts` switches the whole
+  `PDFDocument` to portrait for these two keys only; every other report
+  stays landscape). `User` has no `phone` field, so "Employee phone" always
+  reads "—" rather than guessing at a value.
+
+**Column customization** (`ReportsPage.tsx`'s "Columns" button, shown for
+every report key except `project-utilization`/`client-audit`/
+`weekly-summary`/`daily-timesheet`, whose layouts are fixed): lets a viewer
+hide columns and reorder the rest, persisted per report key in
+`localStorage` only (never sent to or read from the server as a saved
+setting — a per-viewer convenience, like `showWeekends` elsewhere in this
+app). The chosen list flows into `/export` as `?columns=a,b,c`; the backend's
+`reshapeRows` picks and reorders those keys before CSV/XLSX/the generic PDF
+table — so hiding a column on screen hides it in what gets downloaded too.
+Omitting `columns` (every pre-existing report, and any current report with
+no customization applied) is a complete no-op, identical to before this
+existed.
+
 - `csv` — hand-rolled (`services/excel.ts#rowsToCsv`), no dependency needed.
 - `xlsx` — via SheetJS (`services/excel.ts#buildWorkbookFromRows`), real
   spreadsheet data (spec 4.6.3: "not just an image").
@@ -566,9 +613,11 @@ clients still must pick one client explicitly, same as everyone else.
   rather than a raw `Date.toString()` dump. Every export also carries the
   Vivid Edge logo (`routes/reports.ts`, rasterized once at
   `backend/assets/vivid-edge-logo.png` from `frontend/public/brand/logo.svg`
-  since `pdfkit` can't embed SVG directly) — this is the same generator for
-  all seven report keys, including Client Audit, which is the one report
-  built specifically to be handed or emailed to an external client.
+  since `pdfkit` can't embed SVG directly) — this is the generator for every
+  report key except `weekly-summary`/`daily-timesheet` (see above, their own
+  dedicated renderers and portrait layout), including Client Audit, which is
+  the one generic-table report built specifically to be handed or emailed to
+  an external client.
 
 Scheduled delivery (`POST /reports/{key}/schedule`) records the schedule as a
 `notification_rules` row but does not (and cannot, without an email provider —

@@ -5,9 +5,16 @@ import { asyncHandler } from "../utils/asyncHandler";
 import { ApiError } from "../utils/errors";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { ROLES, REPORT_KEYS, ReportKey, PROJECT_MEMBER_ROLE } from "../constants/enums";
-import { getClientAuditReport, getReportData, getUtilizationOverview, ReportFilters } from "../services/reports";
+import {
+  getClientAuditReport,
+  getDailyTimesheetReport,
+  getReportData,
+  getUtilizationOverview,
+  getWeeklySummaryReport,
+  ReportFilters,
+} from "../services/reports";
 import { buildWorkbookFromRows, rowsToCsv } from "../services/excel";
-import { renderPdfTable } from "../services/pdfTable";
+import { renderPdfTable, renderWeeklySummaryPdf, renderDailyTimesheetPdf } from "../services/pdfTable";
 import PDFDocument from "pdfkit";
 
 const router = Router();
@@ -39,6 +46,38 @@ function assertValidKey(key: string): asserts key is ReportKey {
   if (!(REPORT_KEYS as readonly string[]).includes(key)) {
     throw ApiError.badRequest(`Unknown report key "${key}". Valid keys: ${REPORT_KEYS.join(", ")}`);
   }
+}
+
+const REPORT_LABELS: Record<ReportKey, string> = {
+  "timesheet-summary": "Timesheet Summary",
+  "project-utilization": "Project Utilization",
+  "approval-compliance": "Approval Compliance",
+  "missing-timesheets": "Missing Timesheets",
+  overtime: "Overtime",
+  "audit-trail": "Audit Trail",
+  "client-audit": "Client Audit Report",
+  "weekly-summary": "Weekly Summary by Employee",
+  "daily-timesheet": "Daily Timesheet",
+};
+
+// Report keys with their own fixed PDF layout (one page per employee/sheet,
+// not the generic bordered table) — their CSV/XLSX still use the flat rows
+// from getReportData, only their PDF branch differs.
+const CUSTOM_PDF_REPORT_KEYS: ReadonlySet<string> = new Set(["weekly-summary", "daily-timesheet"]);
+
+/** Column customization (Reports screen's "Columns" control): picks and
+ * reorders fields before CSV/XLSX/generic-PDF export, so hiding or
+ * reordering a column on screen is reflected in what gets downloaded too.
+ * A key not present on the row, or an empty/missing list, is a no-op. */
+function reshapeRows(rows: Record<string, unknown>[], columns?: string[]): Record<string, unknown>[] {
+  if (!columns || columns.length === 0 || rows.length === 0) return rows;
+  const valid = columns.filter((c) => c in rows[0]);
+  if (valid.length === 0) return rows;
+  return rows.map((row) => {
+    const next: Record<string, unknown> = {};
+    for (const c of valid) next[c] = row[c];
+    return next;
+  });
 }
 
 // Report keys that are meaningfully scoped to "my own data" — the others
@@ -101,6 +140,16 @@ router.get(
       return res.json({ reportKey, generatedAt: new Date().toISOString(), ...audit });
     }
 
+    if (reportKey === "weekly-summary") {
+      const summary = await getWeeklySummaryReport(filters);
+      return res.json({ reportKey, generatedAt: new Date().toISOString(), ...summary });
+    }
+
+    if (reportKey === "daily-timesheet") {
+      const sheets = await getDailyTimesheetReport(filters);
+      return res.json({ reportKey, generatedAt: new Date().toISOString(), ...sheets });
+    }
+
     // Project Utilization is the one report with dedicated donut/trend
     // charts, so it keeps its own shaped response. Every other report key
     // now returns its real, export-matching rows directly instead of being
@@ -137,7 +186,12 @@ router.get(
     if (reportKey === "client-audit" && !filters.clientId) {
       throw ApiError.badRequest("clientId is required for the Client Audit Report");
     }
-    const rows = await getReportData(reportKey, filters);
+    // Comma-separated, in the order the caller wants them — see
+    // reshapeRows's docstring. Applies to CSV/XLSX for every key, and to the
+    // generic PDF table; the two custom-layout PDFs below ignore it, since
+    // their columns are fixed by the template they're reproducing.
+    const columns = req.query.columns ? String(req.query.columns).split(",").filter(Boolean) : undefined;
+    const rows = reshapeRows(await getReportData(reportKey, filters), columns);
     const fileBase = `${reportKey}_${new Date().toISOString().slice(0, 10)}`;
 
     if (format === "csv") {
@@ -157,8 +211,33 @@ router.get(
     if (format === "pdf") {
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `attachment; filename="${fileBase}.pdf"`);
-      const doc = new PDFDocument({ margin: 36, size: "A4", layout: "landscape" });
+      // Weekly Summary / Daily Timesheet reproduce a portrait, print-style
+      // document (a client-signable timesheet, in Daily Timesheet's case) —
+      // every other report keeps the existing wide, landscape data table.
+      const usesCustomLayout = CUSTOM_PDF_REPORT_KEYS.has(reportKey);
+      const doc = new PDFDocument({
+        margin: 36,
+        size: "A4",
+        layout: usesCustomLayout ? "portrait" : "landscape",
+      });
       doc.pipe(res);
+
+      if (reportKey === "weekly-summary") {
+        const { employees } = await getWeeklySummaryReport(filters);
+        doc.fontSize(16).fillColor("#1B4298").text(REPORT_LABELS[reportKey], { align: "center" });
+        doc.fontSize(9).fillColor("#555").text(`Generated by ${req.user!.name} on ${new Date().toLocaleString()}`, { align: "center" });
+        doc.moveDown(1);
+        renderWeeklySummaryPdf(doc, employees);
+        doc.end();
+        return;
+      }
+
+      if (reportKey === "daily-timesheet") {
+        const { sheets, truncated } = await getDailyTimesheetReport(filters);
+        renderDailyTimesheetPdf(doc, sheets, { path: LOGO_PATH, aspectRatio: LOGO_ASPECT_RATIO }, truncated);
+        doc.end();
+        return;
+      }
 
       // Every exported report — including Client Audit, which is built
       // specifically to be handed/emailed to an external client — carries
@@ -173,7 +252,12 @@ router.get(
       doc.y = doc.page.margins.top + logoWidth * LOGO_ASPECT_RATIO + 10;
       doc.x = doc.page.margins.left;
 
-      doc.fontSize(16).fillColor("#1B4298").text("TimeSync", { continued: true }).fillColor("#000").text(`  —  ${reportKey}`);
+      doc
+        .fontSize(16)
+        .fillColor("#1B4298")
+        .text("TimeSync", { continued: true })
+        .fillColor("#000")
+        .text(`  —  ${REPORT_LABELS[reportKey]}`);
       doc.fontSize(9).fillColor("#555").text(`Generated by ${req.user!.name} on ${new Date().toLocaleString()}`);
       const activeFilters = Object.entries(filters).filter(([, v]) => v !== undefined && v !== "");
       if (activeFilters.length > 0) {

@@ -1,5 +1,5 @@
 import { prisma } from "../lib/prisma";
-import { ReportKey } from "../constants/enums";
+import { ReportKey, PROJECT_MEMBER_ROLE } from "../constants/enums";
 import { sumEstimatedHours } from "../utils/projectHours";
 
 export interface ReportFilters {
@@ -15,6 +15,22 @@ export interface ReportFilters {
 function toIsoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
+
+// UTC day arithmetic, per SCHEMA_REFERENCE.md's rule for the date-only
+// columns (weekStartDate, entryDate are stored as UTC midnight).
+function addDays(d: Date, days: number): Date {
+  const r = new Date(d);
+  r.setUTCDate(r.getUTCDate() + days);
+  return r;
+}
+
+const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function monthLabel(isoDate: string): string {
+  const [y, m] = isoDate.split("-");
+  return `${MONTH_ABBR[Number(m) - 1]}-${y}`;
+}
+
+const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 // Human-readable date+time for report cells — a raw `Date` object serialized
 // via String()/CSV/PDF falls back to its JS toString() ("Thu Sep 10 2026
@@ -204,6 +220,64 @@ export async function getReportData(reportKey: ReportKey, filters: ReportFilters
       }));
     }
 
+    // Flat, export-matching equivalent of getWeeklySummaryReport's grouped
+    // shape (same "employee row, then a Month Total row" layout Jeff's
+    // example used) — see that function's docstring for why both exist.
+    case "weekly-summary": {
+      const { employees } = await getWeeklySummaryReport(filters);
+      const rows: Record<string, unknown>[] = [];
+      for (const emp of employees) {
+        for (const month of emp.months) {
+          for (const w of month.weeks) {
+            rows.push({
+              employeeId: emp.employeeId,
+              employee: emp.name,
+              jobTitle: emp.jobTitle,
+              weekStart: w.weekStart,
+              weekEnd: w.weekEnd,
+              billableHours: w.billableHours,
+              remarks: w.remarks,
+            });
+          }
+          rows.push({
+            employeeId: "",
+            employee: "",
+            jobTitle: "",
+            weekStart: "",
+            weekEnd: `${month.month} Total`,
+            billableHours: month.monthTotal,
+            remarks: "",
+          });
+        }
+      }
+      return rows;
+    }
+
+    // Flat equivalent of getDailyTimesheetReport's per-(employee,week) sheets
+    // — one row per calendar day instead of one page per sheet, for CSV/XLSX
+    // (the PDF export renders the actual signature-sheet layout instead).
+    case "daily-timesheet": {
+      const { sheets } = await getDailyTimesheetReport(filters);
+      const rows: Record<string, unknown>[] = [];
+      for (const sheet of sheets) {
+        sheet.days.forEach((d, i) => {
+          rows.push({
+            employee: sheet.employeeName,
+            manager: sheet.manager,
+            weekEnding: sheet.weekEnd,
+            day: DAY_NAMES[i],
+            date: d.date,
+            projectName: d.projectName,
+            task: d.task,
+            billableHours: d.billableHours,
+            nonBillableHours: d.nonBillableHours,
+            total: Math.round((d.billableHours + d.nonBillableHours) * 100) / 100,
+          });
+        });
+      }
+      return rows;
+    }
+
     default:
       return [];
   }
@@ -283,6 +357,192 @@ export async function getClientAuditReport(filters: ReportFilters) {
     grandTotalHours,
     grandTotalResources,
   };
+}
+
+/**
+ * One row per employee per week they logged *billable* time, grouped under
+ * each employee and then by the month their week starts in (with a subtotal
+ * row) — the exact layout a PM has historically built by hand in Excel to
+ * send a client for timesheet approval (see RELEASE_NOTES.md). "Remarks" is
+ * that week's own week-notes comment, if any. Non-billable time (PTO,
+ * internal admin, etc.) is deliberately excluded — this is a billing-hours
+ * view, not a full activity log. Powers the on-screen preview; the flat,
+ * export-matching rows (same employee/month-total rows, one per line
+ * instead of nested) come from getReportData("weekly-summary", ...).
+ */
+export async function getWeeklySummaryReport(filters: ReportFilters) {
+  const entries = await prisma.timesheetEntry.findMany({
+    where: {
+      entryDate: dateRangeWhere(filters),
+      projectTask: { projectId: filters.projectId, project: { clientId: filters.clientId } },
+      timesheet: { userId: filters.userId, status: filters.status, user: { departmentId: filters.departmentId } },
+    },
+    include: { projectTask: true, timesheet: { include: { user: true } } },
+  });
+
+  interface WeekAgg {
+    weekStart: string;
+    weekEnd: string;
+    billableHours: number;
+    remarks: string;
+  }
+  const byUser = new Map<number, { user: (typeof entries)[number]["timesheet"]["user"]; weeks: Map<string, WeekAgg> }>();
+
+  for (const e of entries) {
+    const u = e.timesheet.user;
+    if (!byUser.has(u.id)) byUser.set(u.id, { user: u, weeks: new Map() });
+    const agg = byUser.get(u.id)!;
+    const weekStart = toIsoDate(e.timesheet.weekStartDate);
+    if (!agg.weeks.has(weekStart)) {
+      agg.weeks.set(weekStart, {
+        weekStart,
+        weekEnd: toIsoDate(addDays(e.timesheet.weekStartDate, 6)),
+        billableHours: 0,
+        remarks: e.timesheet.weekNotes ?? "",
+      });
+    }
+    if (e.projectTask.billable) agg.weeks.get(weekStart)!.billableHours += e.hours;
+  }
+
+  const employees = [...byUser.values()]
+    .map(({ user, weeks }) => {
+      const weekList = [...weeks.values()].sort((a, b) => a.weekStart.localeCompare(b.weekStart));
+      const byMonth = new Map<string, { month: string; weeks: WeekAgg[]; monthTotal: number }>();
+      for (const w of weekList) {
+        // Grouped by the month the week STARTS in, even when the week's own
+        // end date crosses into the next month — matches how the example
+        // this mirrors counted a straddling week entirely under one month.
+        const monthKey = w.weekStart.slice(0, 7);
+        if (!byMonth.has(monthKey)) byMonth.set(monthKey, { month: monthLabel(w.weekStart), weeks: [], monthTotal: 0 });
+        const m = byMonth.get(monthKey)!;
+        m.weeks.push({ ...w, billableHours: Math.round(w.billableHours * 100) / 100 });
+        m.monthTotal = Math.round((m.monthTotal + w.billableHours) * 100) / 100;
+      }
+      const months = [...byMonth.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, v]) => v);
+      const grandTotal = Math.round(months.reduce((s, m) => s + m.monthTotal, 0) * 100) / 100;
+      return {
+        userId: String(user.id),
+        employeeId: user.employeeId,
+        name: user.name,
+        jobTitle: user.jobTitle ?? "—",
+        months,
+        grandTotal,
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  return { employees };
+}
+
+const MAX_DAILY_TIMESHEET_SHEETS = 60;
+
+/**
+ * One "sheet" per employee per week they logged any time — day-by-day
+ * (Monday-Sunday, every day present even if empty) with billable/
+ * non-billable hours split per day, the resolved manager (that week's
+ * busiest project's Project Admin, falling back to the employee's own
+ * reporting manager), and a week total — the data behind the printable,
+ * client-signable timesheet format (see RELEASE_NOTES.md). The PDF export
+ * renders one literal page per sheet, reproducing that layout; CSV/XLSX get
+ * the flat one-row-per-day equivalent via getReportData("daily-timesheet").
+ * Capped at MAX_DAILY_TIMESHEET_SHEETS sheets — this is meant to be run
+ * scoped to one client/project and a short date range, not the whole org's
+ * history at once.
+ */
+export async function getDailyTimesheetReport(filters: ReportFilters) {
+  const entries = await prisma.timesheetEntry.findMany({
+    where: {
+      entryDate: dateRangeWhere(filters),
+      projectTask: { projectId: filters.projectId, project: { clientId: filters.clientId } },
+      timesheet: { userId: filters.userId, status: filters.status, user: { departmentId: filters.departmentId } },
+    },
+    include: {
+      projectTask: {
+        include: {
+          project: { include: { members: { where: { roleOnProject: PROJECT_MEMBER_ROLE.PROJECT_ADMIN }, include: { user: true } } } },
+        },
+      },
+      timesheet: { include: { user: { include: { manager: true } } } },
+    },
+    orderBy: { entryDate: "asc" },
+  });
+
+  interface DayAgg {
+    projects: Set<string>;
+    tasks: Set<string>;
+    billable: number;
+    nonBillable: number;
+  }
+  interface SheetAgg {
+    user: (typeof entries)[number]["timesheet"]["user"];
+    weekStart: string;
+    days: Map<string, DayAgg>;
+    projectCounts: Map<number, number>;
+    projectAdminNames: Map<number, string[]>;
+  }
+  const byUserWeek = new Map<string, SheetAgg>();
+
+  for (const e of entries) {
+    const u = e.timesheet.user;
+    const weekStart = toIsoDate(e.timesheet.weekStartDate);
+    const key = `${u.id}:${weekStart}`;
+    if (!byUserWeek.has(key)) {
+      byUserWeek.set(key, { user: u, weekStart, days: new Map(), projectCounts: new Map(), projectAdminNames: new Map() });
+    }
+    const agg = byUserWeek.get(key)!;
+    const dateIso = toIsoDate(e.entryDate);
+    if (!agg.days.has(dateIso)) agg.days.set(dateIso, { projects: new Set(), tasks: new Set(), billable: 0, nonBillable: 0 });
+    const day = agg.days.get(dateIso)!;
+    const project = e.projectTask.project;
+    day.projects.add(project.name);
+    day.tasks.add(e.projectTask.name);
+    if (e.projectTask.billable) day.billable += e.hours;
+    else day.nonBillable += e.hours;
+    agg.projectCounts.set(project.id, (agg.projectCounts.get(project.id) ?? 0) + 1);
+    if (!agg.projectAdminNames.has(project.id)) {
+      agg.projectAdminNames.set(project.id, project.members.map((m) => m.user.name));
+    }
+  }
+
+  const allSheets = [...byUserWeek.values()].sort(
+    (a, b) => a.user.name.localeCompare(b.user.name) || a.weekStart.localeCompare(b.weekStart)
+  );
+  const truncated = allSheets.length > MAX_DAILY_TIMESHEET_SHEETS;
+
+  const sheets = allSheets.slice(0, MAX_DAILY_TIMESHEET_SHEETS).map((agg) => {
+    const weekStartDate = new Date(`${agg.weekStart}T00:00:00.000Z`);
+    const days = [...Array(7)].map((_, i) => {
+      const dateIso = toIsoDate(addDays(weekStartDate, i));
+      const d = agg.days.get(dateIso);
+      return {
+        date: dateIso,
+        projectName: d ? [...d.projects].join(", ") : "",
+        task: d ? [...d.tasks].join(", ") : "",
+        billableHours: Math.round((d?.billable ?? 0) * 100) / 100,
+        nonBillableHours: Math.round((d?.nonBillable ?? 0) * 100) / 100,
+      };
+    });
+    const totalBillable = Math.round(days.reduce((s, d) => s + d.billableHours, 0) * 100) / 100;
+    const totalNonBillable = Math.round(days.reduce((s, d) => s + d.nonBillableHours, 0) * 100) / 100;
+
+    const winningEntry = [...agg.projectCounts.entries()].sort((a, b) => b[1] - a[1])[0];
+    const manager = (winningEntry ? agg.projectAdminNames.get(winningEntry[0])?.[0] : undefined) ?? agg.user.manager?.name ?? "—";
+
+    return {
+      userId: String(agg.user.id),
+      employeeName: agg.user.name,
+      employeeEmail: agg.user.email,
+      manager,
+      weekStart: agg.weekStart,
+      weekEnd: toIsoDate(addDays(weekStartDate, 6)),
+      days,
+      totalBillable,
+      totalNonBillable,
+      totalHours: Math.round((totalBillable + totalNonBillable) * 100) / 100,
+    };
+  });
+
+  return { sheets, truncated, totalSheets: allSheets.length };
 }
 
 export async function getUtilizationChartData(filters: ReportFilters = {}) {

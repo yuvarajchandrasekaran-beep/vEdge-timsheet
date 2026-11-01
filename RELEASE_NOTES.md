@@ -6,6 +6,16 @@ All notable changes to TimeSync are recorded here, newest first.
 
 ---
 
+## v1.6.0 — 2026-11-01
+
+**New: Weekly Summary by Employee and Daily Timesheet reports.** Built from an SVP Operations request after reviewing M/I Homes client-billing examples — he'd been hand-building both formats in Excel every month to get client sign-off on billed hours. Weekly Summary by Employee groups billable hours under each employee (name + job title) and then by month, with a subtotal row, matching the summary format used for client billing. Daily Timesheet generates one printable, signable sheet per employee per week — day-by-day hours split billable/non-billable, employee/manager details, and blank signature lines — with the PDF export printing one full page per sheet in the same layout that used to be built by hand. Both are capped to a sane number of rows/sheets by default so an unfiltered export doesn't run away.
+
+**New: customizable report columns.** On any of the dynamic-column reports (Timesheet Summary, Approval Compliance, Missing Timesheets, Overtime, Audit Trail), a **Columns** button next to the export buttons lets you hide columns you don't need and reorder the rest — remembered per report type on your own device, and carried through into whatever you export (PDF/Excel/CSV), not just the on-screen table.
+
+See **Reports & analytics** (Section 7) in the User Manual for both.
+
+---
+
 ## v1.5.0 — 2026-10-23
 
 **New: per-client holiday calendars, replacing the single global calendar.** Previously every employee saw the same one company-wide holiday list regardless of who they worked for. HR/Super Admin can now create any number of named, color-coded calendars and assign one to each client (the same calendar can cover several clients, but a client only ever has one at a time) from the Projects page's Clients tab. An employee only ever sees the calendars for clients they actually have a project under — nothing more — so a day covered by more than one of their calendars shows a colored dot for each one, instead of a single generic highlight. See **Holiday Calendars** (Section 5) and **"Your holiday calendars"** (Section 1.4) in the User Manual.
