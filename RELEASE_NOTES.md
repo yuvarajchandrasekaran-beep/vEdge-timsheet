@@ -6,6 +6,18 @@ All notable changes to TimeSync are recorded here, newest first.
 
 ---
 
+## v1.7.0 — 2026-11-12
+
+**New: Pillar and Sub-Pillar on tasks.** Each task can now be tagged with the kind of work it is — a Sub-Pillar such as "Opkey Automation", which belongs to a Pillar such as "Quality Assurance". Super Admins keep the list under **Settings → Pillars**; Project Admins pick a Sub-Pillar per task on a project's **Tasks** tab, next to Billable. Employees don't enter anything new. Tagging the task rather than the project means one project can still hold both engineering and QA work.
+
+**New: Columns button on the Monthly and Fortnight timesheets.** Adds **Pillar** and **Sub-Pillar** columns next to Project / Task. Off by default, remembered per device; with them on, the grid scrolls sideways and Project / Task stays pinned on the left.
+
+**Fix:** columns scrolled under the pinned Project / Task cell in the Monthly/Fortnight grid showed through its translucent tint and through the grid's left padding.
+
+See **The grid** (Section 1.2) and **Managing projects & clients** (Section 3) in the User Manual.
+
+---
+
 ## v1.6.0 — 2026-11-01
 
 **New: Weekly Summary by Employee and Daily Timesheet reports.** Built from an SVP Operations request after reviewing M/I Homes client-billing examples — he'd been hand-building both formats in Excel every month to get client sign-off on billed hours. Weekly Summary by Employee groups billable hours under each employee (name + job title) and then by month, with a subtotal row, matching the summary format used for client billing. Daily Timesheet generates one printable, signable sheet per employee per week — day-by-day hours split billable/non-billable, employee/manager details, and blank signature lines — with the PDF export printing one full page per sheet in the same layout that used to be built by hand. Both are capped to a sane number of rows/sheets by default so an unfiltered export doesn't run away.
