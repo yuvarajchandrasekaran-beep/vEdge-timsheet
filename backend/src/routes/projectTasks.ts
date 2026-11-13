@@ -7,6 +7,7 @@ import { requireAuth, requireRole } from "../middleware/auth";
 import { ROLES } from "../constants/enums";
 import { writeAuditLog } from "../utils/audit";
 import { assertProjectScope } from "../utils/scope";
+import { SUB_PILLAR_INCLUDE, assertSubPillarExists, pillarFields, subPillarIdInput } from "../utils/taskPillar";
 
 const router = Router();
 
@@ -16,6 +17,7 @@ const patchTaskSchema = z.object({
   endDate: z.string().optional(),
   estimatedHours: z.coerce.number().optional(),
   billable: z.boolean().optional(),
+  subPillarId: subPillarIdInput,
   status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
 });
 
@@ -37,6 +39,7 @@ router.patch(
     if (!existing) throw ApiError.notFound("Task not found");
     await assertProjectScope(req.user!, existing.projectId);
     const body = patchTaskSchema.parse(req.body);
+    await assertSubPillarExists(body.subPillarId);
     const task = await prisma.projectTask.update({
       where: { id },
       data: {
@@ -45,8 +48,10 @@ router.patch(
         endDate: body.endDate ? new Date(body.endDate) : undefined,
         estimatedHours: body.estimatedHours,
         billable: body.billable,
+        subPillarId: body.subPillarId,
         active: body.status ? body.status === "ACTIVE" : undefined,
       },
+      include: SUB_PILLAR_INCLUDE,
     });
     await writeAuditLog({ actorId: req.user!.id, impersonatedById: req.user!.impersonatedBy ?? null, entityType: "ProjectTask", entityId: id, action: "Update", before: existing, after: task });
     res.json({
@@ -55,6 +60,7 @@ router.patch(
       name: task.name,
       estimatedHours: task.estimatedHours,
       billable: task.billable,
+      ...pillarFields(task),
       status: task.active ? "ACTIVE" : "INACTIVE",
     });
   })

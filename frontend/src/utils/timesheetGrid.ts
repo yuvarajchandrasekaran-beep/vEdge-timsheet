@@ -11,6 +11,9 @@ export interface GridRow {
   hours: Record<string, string>;
   /** date (YYYY-MM-DD) -> per-entry note, carried through from existing entries */
   notes: Record<string, string>;
+  /** From the task's Sub-Pillar and its Pillar; shown by the optional columns (see ColumnsPicker) */
+  pillarName?: string;
+  subPillarName?: string;
 }
 
 export function buildRowsFromTimesheet(timesheet: Timesheet | undefined, weekStart: string): GridRow[] {
@@ -25,6 +28,8 @@ export function buildRowsFromTimesheet(timesheet: Timesheet | undefined, weekSta
         projectId: entry.projectId,
         projectName: entry.projectName,
         taskName: entry.taskName,
+        pillarName: entry.pillarName ?? undefined,
+        subPillarName: entry.subPillarName ?? undefined,
         hours: Object.fromEntries(days.map((d) => [d, ""])),
         notes: Object.fromEntries(days.map((d) => [d, ""])),
       };
@@ -59,6 +64,8 @@ export function buildRowsFromTimesheets(timesheets: (Timesheet | undefined)[], a
           projectId: entry.projectId,
           projectName: entry.projectName,
           taskName: entry.taskName,
+          pillarName: entry.pillarName ?? undefined,
+          subPillarName: entry.subPillarName ?? undefined,
           hours: Object.fromEntries(allDates.map((d) => [d, ""])),
           notes: Object.fromEntries(allDates.map((d) => [d, ""])),
         };
@@ -74,7 +81,10 @@ export function buildRowsFromTimesheets(timesheets: (Timesheet | undefined)[], a
   return Array.from(byTask.values());
 }
 
-export function emptyRow(days: string[], opts: { projectTaskId: string; projectId: string; projectName: string; taskName: string }): GridRow {
+export function emptyRow(
+  days: string[],
+  opts: Pick<GridRow, "projectTaskId" | "projectId" | "projectName" | "taskName" | "pillarName" | "subPillarName">
+): GridRow {
   return {
     ...opts,
     hours: Object.fromEntries(days.map((d) => [d, ""])),

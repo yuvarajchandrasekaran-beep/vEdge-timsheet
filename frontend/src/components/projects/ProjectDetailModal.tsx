@@ -7,6 +7,7 @@ import { ErrorState } from "../common/ErrorState";
 import { StatusBadge, Badge } from "../common/Badge";
 import { Avatar } from "../common/Avatar";
 import { UserMultiSelectTypeahead } from "../common/UserMultiSelectTypeahead";
+import { SubPillarSelect } from "./SubPillarSelect";
 import { IconPlus, IconTrash } from "../common/icons";
 import {
   useAddProjectMember,
@@ -18,6 +19,7 @@ import {
   useUpdateProjectTask,
 } from "../../hooks/useProjects";
 import { useUsers } from "../../hooks/useUsers";
+import { usePillars } from "../../hooks/usePillars";
 import { getApiErrorMessage } from "../../api/client";
 import { formatDate, formatHoursDecimal } from "../../utils/format";
 import { BILLING_TYPE_LABELS, type BillingType, type ProjectStatus } from "../../types";
@@ -52,6 +54,7 @@ export function ProjectDetailModal({
     setNewTaskName("");
     setNewTaskHours("");
     setNewTaskBillable(true);
+    setNewTaskSubPillarId(null);
     setNewMemberId("");
     setMemberError(null);
     setTaskError(null);
@@ -69,6 +72,7 @@ export function ProjectDetailModal({
   const [newTaskName, setNewTaskName] = useState("");
   const [newTaskHours, setNewTaskHours] = useState("");
   const [newTaskBillable, setNewTaskBillable] = useState(true);
+  const [newTaskSubPillarId, setNewTaskSubPillarId] = useState<string | null>(null);
   const [newMemberId, setNewMemberId] = useState("");
   const [memberError, setMemberError] = useState<string | null>(null);
   const [taskError, setTaskError] = useState<string | null>(null);
@@ -95,6 +99,8 @@ export function ProjectDetailModal({
   // only fetch the directory when the add-member controls (gated on
   // canManage) can actually be shown.
   const usersQuery = useUsers({ page: 1, pageSize: 200 }, !!projectId && canManage);
+  const pillarsQuery = usePillars(!!projectId && canManage);
+  const pillars = pillarsQuery.data ?? [];
 
   function removeTask(taskId: string, taskName: string) {
     if (!project) return;
@@ -109,6 +115,11 @@ export function ProjectDetailModal({
   function changeTaskStatus(taskId: string, status: "ACTIVE" | "INACTIVE") {
     setTaskError(null);
     updateTask.mutate({ id: taskId, patch: { status } }, { onError: (err) => setTaskError(getApiErrorMessage(err)) });
+  }
+
+  function changeTaskSubPillar(taskId: string, subPillarId: string | null) {
+    setTaskError(null);
+    updateTask.mutate({ id: taskId, patch: { subPillarId } }, { onError: (err) => setTaskError(getApiErrorMessage(err)) });
   }
 
   function removeMemberSafely(userId: string, roleOnProject: string) {
@@ -323,12 +334,25 @@ export function ProjectDetailModal({
                       <Badge tone={t.billable ? "brand" : "neutral"}>{t.billable ? "Billable" : "Non-billable"}</Badge>
                       {!canManage && <Badge tone={t.status === "ACTIVE" ? "brand" : "neutral"}>{t.status === "ACTIVE" ? "Active" : "Inactive"}</Badge>}
                     </div>
-                    {t.estimatedHours != null && (
-                      <p className="mt-0.5 text-xs text-gray-400">{formatHoursDecimal(t.estimatedHours)} estimated</p>
+                    {(t.pillarName || t.estimatedHours != null) && (
+                      <p className="mt-0.5 text-xs text-gray-400">
+                        {[
+                          t.pillarName && `${t.pillarName} › ${t.subPillarName}`,
+                          t.estimatedHours != null && `${formatHoursDecimal(t.estimatedHours)} estimated`,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
                     )}
                   </div>
                   {canManage && (
                     <div className="flex shrink-0 items-center gap-1.5">
+                      <SubPillarSelect
+                        pillars={pillars}
+                        value={t.subPillarId}
+                        onChange={(subPillarId) => changeTaskSubPillar(t.id, subPillarId)}
+                        className="max-w-44 rounded-lg border border-gray-200 px-2 py-1 text-xs"
+                      />
                       <select
                         value={t.status}
                         className="rounded-lg border border-gray-200 px-2 py-1 text-xs"
@@ -374,6 +398,12 @@ export function ProjectDetailModal({
                     />
                     Billable
                   </label>
+                  <SubPillarSelect
+                    pillars={pillars}
+                    value={newTaskSubPillarId}
+                    onChange={setNewTaskSubPillarId}
+                    className="input w-44 shrink-0"
+                  />
                   <button
                     onClick={() => {
                       if (!newTaskName.trim()) return;
@@ -384,12 +414,14 @@ export function ProjectDetailModal({
                           name: newTaskName.trim(),
                           billable: newTaskBillable,
                           estimatedHours: newTaskHours === "" ? undefined : Number(newTaskHours),
+                          subPillarId: newTaskSubPillarId,
                         },
                         {
                           onSuccess: () => {
                             setNewTaskName("");
                             setNewTaskHours("");
                             setNewTaskBillable(true);
+                            setNewTaskSubPillarId(null);
                           },
                           onError: (err) => setTaskError(getApiErrorMessage(err)),
                         }

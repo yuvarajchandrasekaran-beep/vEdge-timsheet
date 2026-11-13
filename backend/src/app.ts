@@ -13,6 +13,7 @@ import lookupsRoutes from "./routes/lookups";
 import clientsRoutes from "./routes/clients";
 import projectsRoutes from "./routes/projects";
 import projectTasksRoutes from "./routes/projectTasks";
+import pillarsRoutes from "./routes/pillars";
 import timesheetsRoutes from "./routes/timesheets";
 import approvalsRoutes from "./routes/approvals";
 import notificationsRoutes from "./routes/notifications";
@@ -50,6 +51,7 @@ export function createApp() {
   v1.use("/clients", clientsRoutes);
   v1.use("/projects", projectsRoutes);
   v1.use("/project-tasks", projectTasksRoutes);
+  v1.use("/pillars", pillarsRoutes);
   v1.use("/timesheets", timesheetsRoutes);
   v1.use("/approvals", approvalsRoutes);
   v1.use("/notifications", notificationsRoutes);

@@ -10,6 +10,7 @@ import { writeAuditLog } from "../utils/audit";
 import { assertProjectScope } from "../utils/scope";
 import { paginationParams, paginated } from "../utils/pagination";
 import { sumEstimatedHours } from "../utils/projectHours";
+import { SUB_PILLAR_INCLUDE, assertSubPillarExists, pillarFields, subPillarIdInput } from "../utils/taskPillar";
 import { buildTemplateWorkbook, readFirstSheetRows } from "../services/excel";
 import { validateProjectRows, normalizeBillingType, ProjectImportRow } from "../services/projectImport";
 
@@ -47,6 +48,7 @@ function serializeProject(p: any) {
       endDate: t.endDate,
       estimatedHours: t.estimatedHours,
       billable: t.billable,
+      ...pillarFields(t),
       status: t.active ? "ACTIVE" : "INACTIVE",
     })),
     members: (p.members ?? []).map((m: any) => ({
@@ -63,7 +65,7 @@ function serializeProject(p: any) {
 
 const PROJECT_INCLUDE = {
   client: true,
-  tasks: { include: { timesheetEntries: true } },
+  tasks: { include: { timesheetEntries: true, ...SUB_PILLAR_INCLUDE } },
   members: { include: { user: true } },
 } as const;
 
@@ -524,6 +526,7 @@ const createTaskSchema = z.object({
   endDate: z.string().optional(),
   estimatedHours: z.coerce.number().optional(),
   billable: z.boolean().optional(),
+  subPillarId: subPillarIdInput,
   status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
 });
 
@@ -543,6 +546,7 @@ router.post(
     const projectId = Number(req.params.id);
     await assertProjectScope(req.user!, projectId);
     const body = createTaskSchema.parse(req.body);
+    await assertSubPillarExists(body.subPillarId);
     const task = await prisma.projectTask.create({
       data: {
         projectId,
@@ -551,8 +555,10 @@ router.post(
         endDate: body.endDate ? new Date(body.endDate) : undefined,
         estimatedHours: body.estimatedHours,
         billable: body.billable ?? true,
+        subPillarId: body.subPillarId ?? null,
         active: body.status ? body.status === "ACTIVE" : true,
       },
+      include: SUB_PILLAR_INCLUDE,
     });
     await writeAuditLog({ actorId: req.user!.id, impersonatedById: req.user!.impersonatedBy ?? null, entityType: "ProjectTask", entityId: task.id, action: "Create", after: task });
     res.status(201).json({
@@ -561,6 +567,7 @@ router.post(
       name: task.name,
       estimatedHours: task.estimatedHours,
       billable: task.billable,
+      ...pillarFields(task),
       status: task.active ? "ACTIVE" : "INACTIVE",
     });
   })

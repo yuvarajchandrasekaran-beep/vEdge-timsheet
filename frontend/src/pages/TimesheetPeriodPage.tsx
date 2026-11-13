@@ -32,7 +32,9 @@ import { CommentOverlay } from "../components/timesheet/CommentOverlay";
 import { TimesheetViewSwitcher } from "../components/timesheet/TimesheetViewSwitcher";
 import { SubmitPeriodModal } from "../components/timesheet/SubmitPeriodModal";
 import { CompactViewToggle } from "../components/timesheet/CompactViewToggle";
+import { ColumnsPicker, OPTIONAL_COLUMNS, type OptionalColumn } from "../components/timesheet/ColumnsPicker";
 import { useShowWeekends } from "../hooks/useShowWeekends";
+import { useVisibleColumns } from "../hooks/useVisibleColumns";
 import { useHolidayMap } from "../hooks/useHolidays";
 import { HolidayDots, holidayTooltip } from "../components/timesheet/HolidayDots";
 import type { Holiday } from "../types";
@@ -57,14 +59,19 @@ function weekColor(index: number) {
   return WEEK_PALETTE[index % WEEK_PALETTE.length];
 }
 
+// Opaque equivalents of {color}-50/50 over white — these tint the sticky
+// Project / Task cell, so a translucent fill would let the columns scrolling
+// underneath it show through.
 const PROJECT_PALETTE = [
-  "border-l-blue-400 bg-blue-50/50",
-  "border-l-emerald-400 bg-emerald-50/50",
-  "border-l-amber-400 bg-amber-50/50",
-  "border-l-purple-400 bg-purple-50/50",
-  "border-l-rose-400 bg-rose-50/50",
-  "border-l-cyan-400 bg-cyan-50/50",
+  "border-l-blue-400 bg-[#f7fbff]",
+  "border-l-emerald-400 bg-[#f6fefa]",
+  "border-l-amber-400 bg-[#fffdf5]",
+  "border-l-purple-400 bg-[#fdfaff]",
+  "border-l-rose-400 bg-[#fff8f9]",
+  "border-l-cyan-400 bg-[#f6ffff]",
 ];
+
+const EXTRA_COLUMN_WIDTH = 150;
 
 export default function TimesheetPeriodPage({ kind }: { kind: PeriodKind }) {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -92,6 +99,11 @@ export default function TimesheetPeriodPage({ kind }: { kind: PeriodKind }) {
   // PeriodGridBlock below. Totals/warnings/persistence here always use the
   // full allDays/allDates so hiding weekends never changes what counts.
   const [showWeekends, setShowWeekends] = useShowWeekends();
+
+  // Optional Pillar / Sub-Pillar columns — display-only too, in definition
+  // order regardless of the order they were switched on.
+  const [visibleColumnKeys, setVisibleColumnKeys] = useVisibleColumns();
+  const extraColumns = OPTIONAL_COLUMNS.filter((c) => visibleColumnKeys.includes(c.key));
 
   const projectsQuery = useProjects({ status: "ACTIVE", page: 1, pageSize: 100, mine: true });
   const summaryQueries = useMyTimesheetsForPeriod(weekStarts);
@@ -141,7 +153,14 @@ export default function TimesheetPeriodPage({ kind }: { kind: PeriodKind }) {
     for (const project of projectsQuery.data?.data ?? []) {
       for (const task of project.tasks ?? []) {
         if (task.status !== "ACTIVE") continue;
-        opts.push({ projectId: project.id, projectTaskId: task.id, projectName: project.name, taskName: task.name });
+        opts.push({
+          projectId: project.id,
+          projectTaskId: task.id,
+          projectName: project.name,
+          taskName: task.name,
+          pillarName: task.pillarName ?? undefined,
+          subPillarName: task.subPillarName ?? undefined,
+        });
       }
     }
     return opts;
@@ -517,6 +536,7 @@ export default function TimesheetPeriodPage({ kind }: { kind: PeriodKind }) {
             </button>
           </div>
           <CompactViewToggle showWeekends={showWeekends} onChange={setShowWeekends} />
+          <ColumnsPicker columns={OPTIONAL_COLUMNS} visibleKeys={extraColumns.map((c) => c.key)} onChange={setVisibleColumnKeys} />
           <button
             onClick={handleCopyPeriod}
             disabled={copyPeriod.isPending}
@@ -577,6 +597,7 @@ export default function TimesheetPeriodPage({ kind }: { kind: PeriodKind }) {
               rowHasLockedHours={rowHasLockedHours}
               projectColor={projectColor}
               showWeekends={showWeekends}
+              extraColumns={extraColumns}
               holidayMap={holidayMap}
             />
           ))}
@@ -630,6 +651,7 @@ function PeriodGridBlock({
   rowHasLockedHours,
   projectColor,
   showWeekends,
+  extraColumns,
   holidayMap,
 }: {
   weekStartsChunk: string[];
@@ -643,6 +665,7 @@ function PeriodGridBlock({
   rowHasLockedHours: (row: GridRow) => boolean;
   projectColor: (projectId: string) => string;
   showWeekends: boolean;
+  extraColumns: OptionalColumn[];
   holidayMap: Map<string, Holiday[]>;
 }) {
   function weekStartOfDate(date: string): string {
@@ -659,14 +682,29 @@ function PeriodGridBlock({
   const visibleChunkDates = visibleChunkDays.map((d) => d.date);
   const chunkTotal = weekTotal(rows, allChunkDates);
 
+  // The pinned Project / Task cells carry a white shadow over the container's
+  // left padding, so columns scrolled underneath don't peek out beside them.
   return (
     <div className="overflow-x-auto rounded-xl border border-gray-100 p-2">
-      <table className="border-separate border-spacing-0" style={{ minWidth: `${180 + visibleChunkDates.length * 60}px`, width: "100%" }}>
+      <table
+        className="border-separate border-spacing-0"
+        style={{ minWidth: `${180 + extraColumns.length * EXTRA_COLUMN_WIDTH + visibleChunkDates.length * 60}px`, width: "100%" }}
+      >
         <thead>
           <tr>
-            <th className="sticky left-0 z-10 bg-white px-3 pb-1 text-left align-bottom text-xs font-semibold uppercase tracking-wide text-gray-600" rowSpan={2}>
+            <th className="sticky left-0 z-10 shadow-[-8px_0_0_white] bg-white px-3 pb-1 text-left align-bottom text-xs font-semibold uppercase tracking-wide text-gray-600" rowSpan={2}>
               Project / Task
             </th>
+            {extraColumns.map((c) => (
+              <th
+                key={c.key}
+                className="px-3 pb-1 text-left align-bottom text-xs font-semibold uppercase tracking-wide text-gray-600"
+                style={{ minWidth: EXTRA_COLUMN_WIDTH }}
+                rowSpan={2}
+              >
+                {c.label}
+              </th>
+            ))}
             {weekStartsChunk.map((ws, i) => (
               <th key={ws} colSpan={visibleChunkDays.filter((d) => weekStartOfDate(d.date) === ws).length} className="px-1 pb-1.5">
                 <div className={clsx("flex items-center justify-between gap-2 rounded-lg border px-2 py-1", weekColor(weekIndexOffset + i).header)}>
@@ -710,17 +748,22 @@ function PeriodGridBlock({
         <tbody>
           {rows.length === 0 && (
             <tr>
-              <td colSpan={2 + visibleChunkDates.length} className="py-6 text-center text-sm text-gray-600">
+              <td colSpan={2 + extraColumns.length + visibleChunkDates.length} className="py-6 text-center text-sm text-gray-600">
                 No rows yet — use the field above to add your first project/task for this {kind}.
               </td>
             </tr>
           )}
           {rows.map((row, rowIndex) => (
             <tr key={row.projectTaskId} className="group">
-              <td className={clsx("sticky left-0 z-10 whitespace-nowrap border-l-4 py-1.5 pl-2 pr-4 text-sm", projectColor(row.projectId))}>
+              <td className={clsx("sticky left-0 z-10 shadow-[-8px_0_0_white] whitespace-nowrap border-l-4 py-1.5 pl-2 pr-4 text-sm", projectColor(row.projectId))}>
                 <p className="font-medium text-gray-900">{row.projectName}</p>
                 <p className="text-xs text-gray-600">{row.taskName}</p>
               </td>
+              {extraColumns.map((c) => (
+                <td key={c.key} className="whitespace-nowrap px-3 text-sm text-gray-700">
+                  {c.value(row) || <span className="text-gray-300">—</span>}
+                </td>
+              ))}
               {visibleChunkDates.map((date, colIndex) =>
                 renderCell(chunkKey, row, rowIndex, date, colIndex, visibleChunkDates.length, weekColor(weekIndexOfDate(date)).cell)
               )}
@@ -742,7 +785,10 @@ function PeriodGridBlock({
         {rows.length > 0 && (
           <tfoot>
             <tr>
-              <td className="sticky left-0 z-10 bg-white pt-2 text-sm font-semibold text-gray-700">Daily total</td>
+              <td className="sticky left-0 z-10 shadow-[-8px_0_0_white] bg-white pt-2 text-sm font-semibold text-gray-700">Daily total</td>
+              {extraColumns.map((c) => (
+                <td key={c.key} />
+              ))}
               {visibleChunkDates.map((date) => {
                 const total = dayTotal(rows, date);
                 const v = validateDayTotal(total);

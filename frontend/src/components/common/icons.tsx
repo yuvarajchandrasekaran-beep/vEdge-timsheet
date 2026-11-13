@@ -221,3 +221,10 @@ export const IconArrowLeft = (p: IconProps) => (
     <path d="M19 12H5M12 19l-7-7 7-7" />
   </svg>
 );
+
+export const IconColumns = (p: IconProps) => (
+  <svg {...base(p)}>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="M9 4v16M15 4v16" />
+  </svg>
+);

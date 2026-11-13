@@ -91,6 +91,7 @@ export interface CreateProjectTaskInput {
   name: string;
   billable: boolean;
   estimatedHours?: number;
+  subPillarId?: string | null;
 }
 
 export interface CreateProjectInput {
@@ -169,7 +170,7 @@ export function useCreateProjectTask() {
 export function useUpdateProjectTask() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, patch }: { id: string; patch: Partial<Pick<ProjectTask, "name" | "status" | "billable" | "estimatedHours">> }) => {
+    mutationFn: async ({ id, patch }: { id: string; patch: Partial<Pick<ProjectTask, "name" | "status" | "billable" | "estimatedHours" | "subPillarId">> }) => {
       const res = await apiClient.patch<ProjectTask>(`/project-tasks/${id}`, patch);
       return res.data;
     },

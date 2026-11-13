@@ -82,6 +82,13 @@ day, with a running total column on the right and a total row at the bottom.
 - **Download**: Monthly and Fortnight views have a **Download** button that
   exports the whole grid exactly as shown — one row per project/task, one
   column per date across every week in the period — as an Excel file.
+- **Columns (Pillar / Sub-Pillar)**: Monthly and Fortnight views have a
+  **Columns** button that adds **Pillar** and **Sub-Pillar** columns next to
+  Project / Task, showing what kind of work each task is (e.g. Quality
+  Assurance › Opkey Automation). You never fill these in — they come from the
+  task, set by its Project Admin — and a task without one shows "—". Turning
+  them on widens the grid, which then scrolls sideways with Project / Task
+  pinned on the left. Off by default; your choice is remembered on this device.
 
 ### 1.3 Mandatory conditions
 
@@ -241,10 +248,20 @@ Click **Projects**. This screen has two tabs: **Projects** and **Clients**.
 - **Sub-tasks live inside their project, not as their own menu**: open a
   project (the eye/pencil icon) and use its **Tasks** tab to add sub-tasks
   (e.g. "Requirements", "Build", "Testing") — each can have its own active
-  date window, estimated hours, Billable/Non-billable flag, and be closed
-  independently of the parent project. There's no separate top-level "Tasks"
+  date window, estimated hours, Billable/Non-billable flag, **Sub-Pillar**,
+  and be closed independently of the parent project. There's no separate top-level "Tasks"
   screen — a sub-task only ever makes sense in the context of the one
   project it belongs to, so it's managed there.
+- **Tagging tasks with a Sub-Pillar**: on the **Tasks** tab, pick a
+  Sub-Pillar for each task from the dropdown beside its status (grouped
+  under its Pillar), or when adding a new task, next to **Billable**. The
+  Pillar follows from the Sub-Pillar. Employees then see both in the Pillar /
+  Sub-Pillar columns of their timesheet. Optional — an untagged task works
+  exactly as before. The list itself is kept by Super Admins under
+  **Settings → Pillars**, where Pillars and Sub-Pillars can be added,
+  renamed, and removed (a Sub-Pillar still set on any task can't be removed
+  until those tasks are changed; a Pillar can't be removed while it still has
+  Sub-Pillars).
 - **A project can have more than one admin**: from a project's **Members**
   tab, the "Project admins" section lists everyone administering it, lets
   you search-and-add another, and remove one (a project must always keep at
@@ -482,6 +499,8 @@ alongside your notification list there.
 | Maintain holiday calendars (create/edit/delete, manage holidays) | ✅ | ✅ | | |
 | Assign a client's holiday calendar | ✅ | ✅ | view only | |
 | Enable/send client timesheets | ✅ | | ✅ (own projects) | |
+| Maintain the Pillar / Sub-Pillar list | ✅ | | | |
+| Set a task's Sub-Pillar | ✅ | | ✅ (own projects) | |
 | View reports | all, org-wide | all, org-wide | own projects | own data only |
 | Export reports | ✅ | ✅ | ✅ (own projects) | own data only |
 | System/security configuration | ✅ | | | |

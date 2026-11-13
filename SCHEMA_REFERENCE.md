@@ -24,6 +24,8 @@ erDiagram
     USER ||--o{ USER : manages
     CLIENT ||--o{ PROJECT : has
     PROJECT ||--o{ PROJECT_TASK : has
+    PILLAR ||--o{ SUB_PILLAR : has
+    SUB_PILLAR ||--o{ PROJECT_TASK : tags
     PROJECT ||--o{ PROJECT_MEMBER : has
     USER ||--o{ PROJECT_MEMBER : "assigned via"
     USER ||--o{ PROJECT : "administers"
@@ -162,10 +164,32 @@ soft-delete (`deletedAt` column) instead of a hard cascade.
 | estimatedHours | Float, nullable | Rolls up into the parent project's computed `budgetHours` — see `projects` above |
 | billable | Boolean, default `true` | Billable/non-billable is a per-task flag, not a project-level one |
 | active | Boolean | Independent inactive flag, checked by the validation engine |
+| subPillarId | FK → sub_pillars, nullable | What kind of work the task is; the Pillar follows from the Sub-Pillar. Set by the Project Admin, never by the employee |
 
 Tasks can be created inline while creating a project (`POST /projects`'s
 `tasks[]`) or added later from a project's **Tasks** tab
-(`POST /projects/:id/tasks`) — both accept `billable` and `estimatedHours`.
+(`POST /projects/:id/tasks`) — both accept `billable` and `estimatedHours`;
+`POST /projects/:id/tasks` and `PATCH /project-tasks/:id` also accept
+`subPillarId` (`null` clears it). Every task-shaped response, and every
+timesheet entry, carries the resolved `pillarName` / `subPillarName`
+(`utils/taskPillar.ts`), which the timesheet grid's optional Pillar /
+Sub-Pillar columns display.
+
+### `pillars` / `sub_pillars`
+| Column | Type | Notes |
+|---|---|---|
+| pillars.id | Int PK | |
+| pillars.name | String, unique | e.g. "Quality Assurance" |
+| sub_pillars.id | Int PK | |
+| sub_pillars.pillarId | FK → pillars | |
+| sub_pillars.name | String | Unique within its Pillar, e.g. "Opkey Automation" |
+
+The organization-wide work-category list, maintained from **Settings →
+Pillars** via `/pillars` (`GET` for any signed-in user, since Project Admins
+need it to tag tasks; create/rename/delete Super Admin only). Sub-Pillars
+live under `/pillars/:id/sub-pillars` (create) and `/pillars/sub-pillars/:id`
+(rename/delete). Deletes are blocked rather than cascading: a Sub-Pillar
+still set on any task, or a Pillar that still has Sub-Pillars, returns 409.
 
 ### `project_members` (assignment, admin role + time restrictions)
 | Column | Type | Notes |

@@ -84,7 +84,24 @@ export interface ProjectTask {
   name: string;
   estimatedHours?: number | null;
   billable: boolean;
+  // Set by the Project Admin; the Pillar follows from the Sub-Pillar.
+  subPillarId?: string | null;
+  subPillarName?: string | null;
+  pillarName?: string | null;
   status: "ACTIVE" | "INACTIVE";
+}
+
+export interface SubPillar {
+  id: string;
+  pillarId: string;
+  name: string;
+  taskCount: number;
+}
+
+export interface Pillar {
+  id: string;
+  name: string;
+  subPillars: SubPillar[];
 }
 
 export interface ProjectAdmin {
@@ -145,6 +162,8 @@ export interface TimesheetEntry {
   projectId: string;
   projectName: string;
   taskName: string;
+  pillarName?: string | null;
+  subPillarName?: string | null;
   entryDate: string; // YYYY-MM-DD
   hours: number;
   notes?: string;

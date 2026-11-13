@@ -302,6 +302,30 @@ async function main() {
     tasks: [{ name: "Training", estimatedHours: 200, billable: false }],
   });
 
+  // Pillars / Sub-Pillars — the example values from the original request.
+  // Only a couple of tasks are tagged, so the Pillar columns also show what
+  // an untagged task looks like.
+  const pillarDefs: Record<string, string[]> = {
+    "Product Engineering": ["ServiceNow", "Digital Adoption"],
+    "Quality Assurance": ["Manual Testing", "Opkey Automation"],
+  };
+  const subPillars: Record<string, number> = {};
+  for (const [pillarName, subNames] of Object.entries(pillarDefs)) {
+    const pillar = await prisma.pillar.upsert({ where: { name: pillarName }, update: {}, create: { name: pillarName } });
+    for (const name of subNames) {
+      const sub = await prisma.subPillar.upsert({
+        where: { pillarId_name: { pillarId: pillar.id, name } },
+        update: {},
+        create: { pillarId: pillar.id, name },
+      });
+      subPillars[name] = sub.id;
+    }
+  }
+  const [erpDevelopment, erpTesting] = erp.tasks;
+  // Only tag untagged tasks, so re-seeding never overwrites an admin's choice.
+  await prisma.projectTask.updateMany({ where: { id: erpDevelopment.id, subPillarId: null }, data: { subPillarId: subPillars["ServiceNow"] } });
+  await prisma.projectTask.updateMany({ where: { id: erpTesting.id, subPillarId: null }, data: { subPillarId: subPillars["Manual Testing"] } });
+
   // Example client engagements requested for the demo catalogue.
   const vodacomClient = await prisma.client.upsert({ where: { name: "Vodacom" }, update: { status: "ACTIVE" }, create: { name: "Vodacom", status: "ACTIVE" } });
   const solsticeClient = await prisma.client.upsert({ where: { name: "Solstice" }, update: { status: "ACTIVE" }, create: { name: "Solstice", status: "ACTIVE" } });

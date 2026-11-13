@@ -124,9 +124,37 @@ model ProjectTask {
   billable       Boolean   @default(true)
   active         Boolean   @default(true)
 
+  // What kind of work this task is (e.g. Quality Assurance › Opkey
+  // Automation) — the Pillar follows from the Sub-Pillar. Optional, and set
+  // by the Project Admin alongside `billable`, so employees never pick it.
+  subPillarId Int?
+  subPillar   SubPillar? @relation(fields: [subPillarId], references: [id])
+
   timesheetEntries TimesheetEntry[]
 
   @@map("project_tasks")
+}
+
+// Organization-wide list of work categories (e.g. Product Engineering,
+// Quality Assurance), each with its own Sub-Pillars. Managed by Super Admins
+// in Settings; tasks reference a SubPillar, never a Pillar directly.
+model Pillar {
+  id         Int         @id @default(autoincrement())
+  name       String      @unique
+  subPillars SubPillar[]
+
+  @@map("pillars")
+}
+
+model SubPillar {
+  id       Int           @id @default(autoincrement())
+  pillarId Int
+  pillar   Pillar        @relation(fields: [pillarId], references: [id])
+  name     String
+  tasks    ProjectTask[]
+
+  @@unique([pillarId, name])
+  @@map("sub_pillars")
 }
 
 model ProjectMember {

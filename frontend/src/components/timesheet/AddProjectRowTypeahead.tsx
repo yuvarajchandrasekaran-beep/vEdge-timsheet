@@ -6,6 +6,8 @@ export interface TaskOption {
   projectTaskId: string;
   projectName: string;
   taskName: string;
+  pillarName?: string;
+  subPillarName?: string;
 }
 
 export function AddProjectRowTypeahead({

@@ -1,5 +1,6 @@
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import clsx from "clsx";
+import { getApiErrorMessage } from "../api/client";
 import {
   useApprovalChains,
   useBrandingSettings,
@@ -10,15 +11,26 @@ import {
   useUpdateOrgSettings,
 } from "../hooks/useSettings";
 import { useAuditLogs } from "../hooks/useAuditLogs";
+import {
+  useCreatePillar,
+  useCreateSubPillar,
+  useDeletePillar,
+  useDeleteSubPillar,
+  usePillars,
+  useUpdatePillar,
+  useUpdateSubPillar,
+} from "../hooks/usePillars";
 import { usePageHeader } from "../hooks/usePageHeader";
 import { LoadingBlock } from "../components/common/Spinner";
 import { Pagination } from "../components/common/Pagination";
-import { ROLE_LABELS, type OrgSettings, type RoleName } from "../types";
+import { IconEdit, IconPlus, IconTrash } from "../components/common/icons";
+import { ROLE_LABELS, type OrgSettings, type Pillar, type RoleName } from "../types";
 import { formatDateTime } from "../utils/format";
 
-type Tab = "organization" | "approvals" | "notifications" | "branding" | "permissions" | "audit";
+type Tab = "organization" | "pillars" | "approvals" | "notifications" | "branding" | "permissions" | "audit";
 const TABS: { key: Tab; label: string }[] = [
   { key: "organization", label: "Organization" },
+  { key: "pillars", label: "Pillars" },
   { key: "approvals", label: "Approval Chains" },
   { key: "notifications", label: "Notification Rules" },
   { key: "branding", label: "Branding" },
@@ -48,6 +60,7 @@ export default function SettingsPage() {
       </div>
 
       {tab === "organization" && <OrganizationTab />}
+      {tab === "pillars" && <PillarsTab />}
       {tab === "approvals" && <ApprovalChainsTab />}
       {tab === "notifications" && <NotificationRulesTab />}
       {tab === "branding" && <BrandingTab />}
@@ -118,6 +131,189 @@ function OrganizationTab() {
         {update.isSuccess && <span className="text-sm text-status-success">Saved.</span>}
       </div>
     </Card>
+  );
+}
+
+/**
+ * The organization-wide Pillar / Sub-Pillar list. Project Admins tag each
+ * task with a Sub-Pillar (Project → Tasks); employees see both through the
+ * Columns button on their Monthly/Fortnight timesheet and never pick them.
+ */
+function PillarsTab() {
+  const { data: pillars, isLoading } = usePillars();
+  const createPillar = useCreatePillar();
+  const [newPillarName, setNewPillarName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  if (isLoading) return <LoadingBlock />;
+
+  function addPillar() {
+    const name = newPillarName.trim();
+    if (!name) return;
+    setError(null);
+    createPillar.mutate(
+      { name },
+      { onSuccess: () => setNewPillarName(""), onError: (err) => setError(getApiErrorMessage(err)) }
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <p className="text-sm font-semibold text-gray-900">Pillars &amp; Sub-Pillars</p>
+        <p className="mt-1 text-sm text-gray-600">
+          The kinds of work your organization tracks. Project Admins set a Sub-Pillar on each task, and its Pillar follows. Employees
+          see both through the Columns button on their Monthly and Fortnight timesheets.
+        </p>
+        {error && <p className="mt-3 text-sm text-status-danger">{error}</p>}
+      </Card>
+
+      {(pillars ?? []).length === 0 && (
+        <p className="py-4 text-center text-sm text-gray-400">No Pillars yet — add the first one below.</p>
+      )}
+      {(pillars ?? []).map((p) => (
+        <PillarCard key={p.id} pillar={p} onError={setError} />
+      ))}
+
+      <Card>
+        <div className="flex items-center gap-2">
+          <input
+            value={newPillarName}
+            onChange={(e) => setNewPillarName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addPillar()}
+            placeholder="New Pillar name, e.g. Quality Assurance"
+            className="input flex-1"
+          />
+          <button onClick={addPillar} disabled={createPillar.isPending || !newPillarName.trim()} className="btn-primary shrink-0">
+            <IconPlus size={16} />
+            Add Pillar
+          </button>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function PillarCard({ pillar, onError }: { pillar: Pillar; onError: (message: string | null) => void }) {
+  const updatePillar = useUpdatePillar();
+  const deletePillar = useDeletePillar();
+  const createSubPillar = useCreateSubPillar();
+  const updateSubPillar = useUpdateSubPillar();
+  const deleteSubPillar = useDeleteSubPillar();
+  const [newSubName, setNewSubName] = useState("");
+
+  const handlers = { onSuccess: () => onError(null), onError: (err: unknown) => onError(getApiErrorMessage(err)) };
+
+  function addSubPillar() {
+    const name = newSubName.trim();
+    if (!name) return;
+    createSubPillar.mutate(
+      { pillarId: pillar.id, name },
+      { ...handlers, onSuccess: () => { onError(null); setNewSubName(""); } }
+    );
+  }
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between gap-3">
+        <InlineName name={pillar.name} className="text-base font-semibold text-gray-900" onSave={(name) => updatePillar.mutate({ id: pillar.id, name }, handlers)} />
+        <button
+          onClick={() => {
+            if (!confirm(`Delete the Pillar "${pillar.name}"?`)) return;
+            deletePillar.mutate(pillar.id, handlers);
+          }}
+          className="rounded-lg p-1.5 text-gray-300 hover:bg-rose-50 hover:text-status-danger"
+          aria-label={`Delete Pillar ${pillar.name}`}
+          title={pillar.subPillars.length ? "Remove its Sub-Pillars first" : "Delete Pillar"}
+        >
+          <IconTrash size={15} />
+        </button>
+      </div>
+
+      <div className="mt-3 space-y-2">
+        {pillar.subPillars.length === 0 && <p className="text-sm text-gray-400">No Sub-Pillars yet.</p>}
+        {pillar.subPillars.map((s) => (
+          <div key={s.id} className="flex items-center justify-between gap-3 rounded-xl border border-gray-100 px-4 py-2">
+            <div className="min-w-0">
+              <InlineName name={s.name} className="text-sm font-medium text-gray-800" onSave={(name) => updateSubPillar.mutate({ id: s.id, name }, handlers)} />
+              <p className="text-xs text-gray-400">{s.taskCount ? `Set on ${s.taskCount} task${s.taskCount === 1 ? "" : "s"}` : "Not used yet"}</p>
+            </div>
+            <button
+              onClick={() => {
+                if (!confirm(`Delete the Sub-Pillar "${s.name}"?`)) return;
+                deleteSubPillar.mutate(s.id, handlers);
+              }}
+              className="shrink-0 rounded-lg p-1.5 text-gray-300 hover:bg-rose-50 hover:text-status-danger"
+              aria-label={`Delete Sub-Pillar ${s.name}`}
+            >
+              <IconTrash size={15} />
+            </button>
+          </div>
+        ))}
+        <div className="flex items-center gap-2 pt-1">
+          <input
+            value={newSubName}
+            onChange={(e) => setNewSubName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addSubPillar()}
+            placeholder={`New Sub-Pillar under ${pillar.name}…`}
+            className="input flex-1"
+          />
+          <button onClick={addSubPillar} disabled={createSubPillar.isPending || !newSubName.trim()} className="btn-primary shrink-0 px-3" aria-label="Add Sub-Pillar">
+            <IconPlus size={16} />
+          </button>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+/** A name that turns into an input for renaming — Enter saves, Escape cancels. */
+function InlineName({ name, className, onSave }: { name: string; className?: string; onSave: (next: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(name);
+  // Enter/Escape close the input, which can also fire its blur — this keeps
+  // that second event from saving again (or saving a cancelled edit).
+  const finished = useRef(false);
+
+  function finish(commit: boolean) {
+    if (finished.current) return;
+    finished.current = true;
+    setEditing(false);
+    const next = draft.trim();
+    if (commit && next && next !== name) onSave(next);
+  }
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => finish(true)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") finish(true);
+          if (e.key === "Escape") finish(false);
+        }}
+        className="input max-w-sm py-1.5"
+        aria-label="Name"
+      />
+    );
+  }
+  return (
+    <div className="flex min-w-0 items-center gap-1.5">
+      <span className={clsx("truncate", className)}>{name}</span>
+      <button
+        onClick={() => {
+          setDraft(name);
+          finished.current = false;
+          setEditing(true);
+        }}
+        className="rounded-lg p-1 text-gray-300 hover:bg-gray-100 hover:text-gray-600"
+        aria-label={`Rename ${name}`}
+      >
+        <IconEdit size={13} />
+      </button>
+    </div>
   );
 }
 

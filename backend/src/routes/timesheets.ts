@@ -12,6 +12,7 @@ import { resolveApprover } from "../services/approvalRouting";
 import { TIMESHEET_STATUS, ROLES, PROJECT_MEMBER_ROLE } from "../constants/enums";
 import { buildWorkbookFromRows, rowsToCsv } from "../services/excel";
 import { timesheetCode } from "../utils/timesheetCode";
+import { SUB_PILLAR_INCLUDE } from "../utils/taskPillar";
 import { paginationParams, paginated } from "../utils/pagination";
 
 const router = Router();
@@ -32,7 +33,7 @@ async function serializeTimesheet(timesheetId: number) {
   const timesheet = await prisma.timesheet.findUnique({
     where: { id: timesheetId },
     include: {
-      entries: { include: { projectTask: { include: { project: true } } } },
+      entries: { include: { projectTask: { include: { project: true, ...SUB_PILLAR_INCLUDE } } } },
       approvals: { include: { approver: true }, orderBy: { actedAt: "asc" } },
       user: true,
     },
@@ -75,6 +76,8 @@ async function serializeTimesheet(timesheetId: number) {
       projectId: e.projectTask.projectId,
       projectName: e.projectTask.project.name,
       taskName: e.projectTask.name,
+      pillarName: e.projectTask.subPillar?.pillar.name ?? null,
+      subPillarName: e.projectTask.subPillar?.name ?? null,
       entryDate: toIsoDate(e.entryDate),
       hours: e.hours,
       notes: e.notes,
