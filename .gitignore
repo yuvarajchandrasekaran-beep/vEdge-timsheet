@@ -10,8 +10,8 @@ backend/dist/
 frontend/dist/
 *.tsbuildinfo
 
-# Local database (schema + seed are committed; the data file is not)
-backend/prisma/dev.db
+# Local database: dev.db itself is committed as a ready-to-run demo database
+# (every account uses the README's demo password); SQLite's transient files are not
 backend/prisma/dev.db-journal
 backend/prisma/*.db-wal
 backend/prisma/*.db-shm
