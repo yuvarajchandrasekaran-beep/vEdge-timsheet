@@ -28,7 +28,18 @@ http {
             proxy_set_header X-Forwarded-Proto https;
         }
 
+        # Vite fingerprints everything under /assets/ (index-<hash>.js), so
+        # those never go stale and can be cached for good. index.html is what
+        # points at the current hashes, so it has to be revalidated on every
+        # load — without this, browsers kept running the previous release
+        # for up to a day after a deploy.
+        location /assets/ {
+            add_header Cache-Control "public, max-age=31536000, immutable";
+            try_files $uri =404;
+        }
+
         location / {
+            add_header Cache-Control "no-cache";
             try_files $uri /index.html;
         }
     }
