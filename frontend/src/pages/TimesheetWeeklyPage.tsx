@@ -21,7 +21,9 @@ import { CommentOverlay } from "../components/timesheet/CommentOverlay";
 import { HolidayDots, holidayTooltip } from "../components/timesheet/HolidayDots";
 import { TimesheetViewSwitcher } from "../components/timesheet/TimesheetViewSwitcher";
 import { CompactViewToggle } from "../components/timesheet/CompactViewToggle";
+import { ColumnsPicker, OPTIONAL_COLUMN_WIDTH, OPTIONAL_COLUMNS } from "../components/timesheet/ColumnsPicker";
 import { useShowWeekends } from "../hooks/useShowWeekends";
+import { useVisibleColumns } from "../hooks/useVisibleColumns";
 import { useHolidayMap } from "../hooks/useHolidays";
 import clsx from "clsx";
 
@@ -36,6 +38,10 @@ export default function TimesheetWeeklyPage() {
   const holidayMap = useHolidayMap(useMemo(() => days.map((d) => d.date), [days]));
   const [showWeekends, setShowWeekends] = useShowWeekends();
   const visibleDays = useMemo(() => (showWeekends ? days : days.filter((d) => !d.isWeekend)), [days, showWeekends]);
+  // Optional Pillar / Sub-Pillar columns — the same remembered choice as the
+  // Monthly/Fortnight grid.
+  const [visibleColumnKeys, setVisibleColumnKeys] = useVisibleColumns();
+  const extraColumns = OPTIONAL_COLUMNS.filter((c) => visibleColumnKeys.includes(c.key));
   const navigate = useNavigate();
   const { showToast } = useToast();
   usePageHeader("Weekly Timesheet", formatWeekRange(weekStart, weekEnd));
@@ -81,6 +87,8 @@ export default function TimesheetWeeklyPage() {
           projectTaskId: task.id,
           projectName: project.name,
           taskName: task.name,
+          pillarName: task.pillarName ?? undefined,
+          subPillarName: task.subPillarName ?? undefined,
         });
       }
     }
@@ -339,6 +347,7 @@ export default function TimesheetWeeklyPage() {
             </button>
           </div>
           <CompactViewToggle showWeekends={showWeekends} onChange={setShowWeekends} />
+          <ColumnsPicker columns={OPTIONAL_COLUMNS} visibleKeys={extraColumns.map((c) => c.key)} onChange={setVisibleColumnKeys} />
           {isEditable && (
             <button
               onClick={handleCopyLastWeek}
@@ -382,12 +391,21 @@ export default function TimesheetWeeklyPage() {
           Hours are decimal (e.g. <span className="font-medium text-gray-700">7.5</span> = 7h 30m), not clock time — 4.30 means 4 hours 18 minutes, not 4:30.
         </p>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[820px] border-separate border-spacing-0">
+          <table className="w-full border-separate border-spacing-0" style={{ minWidth: 820 + extraColumns.length * OPTIONAL_COLUMN_WIDTH }}>
             <thead>
               <tr>
                 <th className="sticky left-0 z-10 bg-white px-3 pb-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">
                   Project / Task
                 </th>
+                {extraColumns.map((c) => (
+                  <th
+                    key={c.key}
+                    className="px-3 pb-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600"
+                    style={{ minWidth: OPTIONAL_COLUMN_WIDTH }}
+                  >
+                    {c.label}
+                  </th>
+                ))}
                 {visibleDays.map((d) => {
                   const dayHolidays = holidayMap.get(d.date) ?? [];
                   return (
@@ -416,7 +434,7 @@ export default function TimesheetWeeklyPage() {
             <tbody>
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={visibleDateStrings.length + 3} className="py-8 text-center text-sm text-gray-600">
+                  <td colSpan={visibleDateStrings.length + 3 + extraColumns.length} className="py-8 text-center text-sm text-gray-600">
                     No rows yet — use the field below to add your first project/task for this week.
                   </td>
                 </tr>
@@ -427,6 +445,11 @@ export default function TimesheetWeeklyPage() {
                     <p className="font-medium text-gray-900">{row.projectName}</p>
                     <p className="text-xs text-gray-500">{row.taskName}</p>
                   </td>
+                  {extraColumns.map((c) => (
+                    <td key={c.key} className="whitespace-nowrap px-3 text-sm text-gray-700">
+                      {c.value(row) || <span className="text-gray-300">—</span>}
+                    </td>
+                  ))}
                   {visibleDateStrings.map((date, colIndex) => {
                     const raw = row.hours[date] ?? "";
                     const validation = validateCellHours(raw);
@@ -488,6 +511,9 @@ export default function TimesheetWeeklyPage() {
               <tfoot>
                 <tr>
                   <td className="sticky left-0 z-10 bg-white pt-2 text-sm font-semibold text-gray-700">Daily total</td>
+                  {extraColumns.map((c) => (
+                    <td key={c.key} />
+                  ))}
                   {visibleDateStrings.map((date) => {
                     const total = dayTotal(rows, date);
                     const v = validateDayTotal(total);

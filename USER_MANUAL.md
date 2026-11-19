@@ -82,13 +82,15 @@ day, with a running total column on the right and a total row at the bottom.
 - **Download**: Monthly and Fortnight views have a **Download** button that
   exports the whole grid exactly as shown — one row per project/task, one
   column per date across every week in the period — as an Excel file.
-- **Columns (Pillar / Sub-Pillar)**: Monthly and Fortnight views have a
-  **Columns** button that adds **Pillar** and **Sub-Pillar** columns next to
-  Project / Task, showing what kind of work each task is (e.g. Quality
+- **Columns (Pillar / Sub-Pillar)**: every view (Monthly, Fortnight, Weekly,
+  and Daily) has a **Columns** button that shows **Pillar** and
+  **Sub-Pillar** for each task — what kind of work it is (e.g. Quality
   Assurance › Opkey Automation). You never fill these in — they come from the
-  task, set by its Project Admin — and a task without one shows "—". Turning
-  them on widens the grid, which then scrolls sideways with Project / Task
-  pinned on the left. Off by default; your choice is remembered on this device.
+  task, set by its Project Admin — and a task without one shows "—". In the
+  Monthly, Fortnight, and Weekly grids they appear as columns next to Project /
+  Task, widening the grid so it scrolls sideways with Project / Task pinned on
+  the left; in the Daily view they appear under each task's name. Off by
+  default; one choice covers all four views and is remembered on this device.
 
 ### 1.3 Mandatory conditions
 

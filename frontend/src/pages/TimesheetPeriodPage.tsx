@@ -32,7 +32,7 @@ import { CommentOverlay } from "../components/timesheet/CommentOverlay";
 import { TimesheetViewSwitcher } from "../components/timesheet/TimesheetViewSwitcher";
 import { SubmitPeriodModal } from "../components/timesheet/SubmitPeriodModal";
 import { CompactViewToggle } from "../components/timesheet/CompactViewToggle";
-import { ColumnsPicker, OPTIONAL_COLUMNS, type OptionalColumn } from "../components/timesheet/ColumnsPicker";
+import { ColumnsPicker, OPTIONAL_COLUMN_WIDTH, OPTIONAL_COLUMNS, type OptionalColumn } from "../components/timesheet/ColumnsPicker";
 import { useShowWeekends } from "../hooks/useShowWeekends";
 import { useVisibleColumns } from "../hooks/useVisibleColumns";
 import { useHolidayMap } from "../hooks/useHolidays";
@@ -70,8 +70,6 @@ const PROJECT_PALETTE = [
   "border-l-rose-400 bg-[#fff8f9]",
   "border-l-cyan-400 bg-[#f6ffff]",
 ];
-
-const EXTRA_COLUMN_WIDTH = 150;
 
 export default function TimesheetPeriodPage({ kind }: { kind: PeriodKind }) {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -688,7 +686,7 @@ function PeriodGridBlock({
     <div className="overflow-x-auto rounded-xl border border-gray-100 p-2">
       <table
         className="border-separate border-spacing-0"
-        style={{ minWidth: `${180 + extraColumns.length * EXTRA_COLUMN_WIDTH + visibleChunkDates.length * 60}px`, width: "100%" }}
+        style={{ minWidth: `${180 + extraColumns.length * OPTIONAL_COLUMN_WIDTH + visibleChunkDates.length * 60}px`, width: "100%" }}
       >
         <thead>
           <tr>
@@ -699,7 +697,7 @@ function PeriodGridBlock({
               <th
                 key={c.key}
                 className="px-3 pb-1 text-left align-bottom text-xs font-semibold uppercase tracking-wide text-gray-600"
-                style={{ minWidth: EXTRA_COLUMN_WIDTH }}
+                style={{ minWidth: OPTIONAL_COLUMN_WIDTH }}
                 rowSpan={2}
               >
                 {c.label}

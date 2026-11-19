@@ -14,6 +14,8 @@ import { ErrorState } from "../components/common/ErrorState";
 import { EmptyState } from "../components/common/EmptyState";
 import { AddProjectRowTypeahead, type TaskOption } from "../components/timesheet/AddProjectRowTypeahead";
 import { CommentOverlay } from "../components/timesheet/CommentOverlay";
+import { ColumnsPicker, OPTIONAL_COLUMNS } from "../components/timesheet/ColumnsPicker";
+import { useVisibleColumns } from "../hooks/useVisibleColumns";
 import { TimesheetViewSwitcher } from "../components/timesheet/TimesheetViewSwitcher";
 import { SubmitConfirmModal } from "../components/timesheet/SubmitConfirmModal";
 import { IconArrowLeft, IconCheck, IconCopy, IconTrash } from "../components/common/icons";
@@ -27,6 +29,8 @@ interface DayLine {
   projectId: string;
   projectName: string;
   taskName: string;
+  pillarName?: string;
+  subPillarName?: string;
   hours: string;
   notes: string;
 }
@@ -41,6 +45,10 @@ export default function TimesheetDayPage() {
   usePageHeader(format(parseISO(date), "EEEE, MMM d, yyyy"));
   const holidayMap = useHolidayMap(useMemo(() => [date], [date]));
   const dayHolidays = holidayMap.get(date) ?? [];
+  // Same remembered Columns choice as the grids; here the fields show as
+  // labelled values under each task name.
+  const [visibleColumnKeys, setVisibleColumnKeys] = useVisibleColumns();
+  const extraColumns = OPTIONAL_COLUMNS.filter((c) => visibleColumnKeys.includes(c.key));
 
   const timesheetQuery = useMyTimesheet(weekStart);
   const projectsQuery = useProjects({ status: "ACTIVE", page: 1, pageSize: 100, mine: true });
@@ -65,6 +73,8 @@ export default function TimesheetDayPage() {
         projectId: e.projectId,
         projectName: e.projectName,
         taskName: e.taskName,
+        pillarName: e.pillarName ?? undefined,
+        subPillarName: e.subPillarName ?? undefined,
         hours: e.hours ? String(e.hours) : "",
         notes: e.notes ?? "",
       }))
@@ -77,7 +87,14 @@ export default function TimesheetDayPage() {
     for (const project of projectsQuery.data?.data ?? []) {
       for (const task of project.tasks ?? []) {
         if (task.status !== "ACTIVE") continue;
-        opts.push({ projectId: project.id, projectTaskId: task.id, projectName: project.name, taskName: task.name });
+        opts.push({
+          projectId: project.id,
+          projectTaskId: task.id,
+          projectName: project.name,
+          taskName: task.name,
+          pillarName: task.pillarName ?? undefined,
+          subPillarName: task.subPillarName ?? undefined,
+        });
       }
     }
     return opts;
@@ -159,6 +176,8 @@ export default function TimesheetDayPage() {
             projectId: e.projectId,
             projectName: e.projectName,
             taskName: e.taskName,
+            pillarName: e.pillarName ?? undefined,
+            subPillarName: e.subPillarName ?? undefined,
             hours: e.hours ? String(e.hours) : "",
             notes: e.notes ?? "",
           }))
@@ -219,6 +238,8 @@ export default function TimesheetDayPage() {
       projectId: e.projectId,
       projectName: e.projectName,
       taskName: e.taskName,
+      pillarName: e.pillarName ?? undefined,
+      subPillarName: e.subPillarName ?? undefined,
       hours: e.hours ? String(e.hours) : "",
       notes: "",
     }));
@@ -270,7 +291,7 @@ export default function TimesheetDayPage() {
         </Link>
       </div>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <input
             type="date"
             value={date}
@@ -290,6 +311,7 @@ export default function TimesheetDayPage() {
               {h.name}
             </span>
           ))}
+          <ColumnsPicker columns={OPTIONAL_COLUMNS} visibleKeys={extraColumns.map((c) => c.key)} onChange={setVisibleColumnKeys} />
           {isEditable && (
             <button
               onClick={copyFromPreviousDay}
@@ -342,6 +364,16 @@ export default function TimesheetDayPage() {
                 <div className="min-w-[180px] flex-1">
                   <p className="text-sm font-semibold text-gray-900">{line.projectName}</p>
                   <p className="text-xs text-gray-500">{line.taskName}</p>
+                  {extraColumns.length > 0 && (
+                    <dl className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-xs">
+                      {extraColumns.map((c) => (
+                        <div key={c.key} className="flex gap-1">
+                          <dt className="text-gray-400">{c.label}:</dt>
+                          <dd className="text-gray-700">{c.value(line) || "—"}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  )}
                 </div>
                 <div className="w-24">
                   <div className="flex items-center gap-1.5">

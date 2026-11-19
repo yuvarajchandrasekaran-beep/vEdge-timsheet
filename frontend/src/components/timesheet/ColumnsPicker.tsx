@@ -4,14 +4,18 @@ import type { GridRow } from "../../utils/timesheetGrid";
 import { IconColumns } from "../common/icons";
 
 /**
- * Optional descriptive columns that sit between Project / Task and the day
- * columns. Display-only — they never affect hours, totals or what gets saved.
+ * Optional descriptive fields — columns between Project / Task and the day
+ * columns in the Monthly/Fortnight/Weekly grids, labelled values under the
+ * task name in the Daily view. Display-only — they never affect hours,
+ * totals or what gets saved.
  */
 export interface OptionalColumn {
   key: string;
   label: string;
-  value: (row: GridRow) => string | undefined;
+  value: (row: Pick<GridRow, "pillarName" | "subPillarName">) => string | undefined;
 }
+
+export const OPTIONAL_COLUMN_WIDTH = 150;
 
 export const OPTIONAL_COLUMNS: OptionalColumn[] = [
   { key: "pillar", label: "Pillar", value: (row) => row.pillarName },
@@ -19,9 +23,10 @@ export const OPTIONAL_COLUMNS: OptionalColumn[] = [
 ];
 
 /**
- * "Columns" — lets each person switch on the optional columns above. Any
- * column switched on widens the grid, which then scrolls sideways with
- * Project / Task pinned on the left.
+ * "Columns" — lets each person switch on the optional fields above, in every
+ * timesheet view (one shared, remembered choice). In the grids, any column
+ * switched on widens the grid, which then scrolls sideways with Project /
+ * Task pinned on the left.
  */
 export function ColumnsPicker({
   columns,

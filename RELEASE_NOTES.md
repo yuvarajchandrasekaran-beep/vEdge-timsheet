@@ -6,6 +6,12 @@ All notable changes to TimeSync are recorded here, newest first.
 
 ---
 
+## v1.7.1 — 2026-11-19
+
+**Fix:** Pillar and Sub-Pillar were only visible in the Monthly and Fortnight timesheets. The **Columns** button now appears in the Weekly and Daily views too — as columns next to Project / Task in Weekly, and as labelled values under each task's name in Daily — and one choice covers all four views. Reported while setting up the Paessler project.
+
+---
+
 ## v1.7.0 — 2026-11-12
 
 **New: Pillar and Sub-Pillar on tasks.** Each task can now be tagged with the kind of work it is — a Sub-Pillar such as "Opkey Automation", which belongs to a Pillar such as "Quality Assurance". Super Admins keep the list under **Settings → Pillars**; Project Admins pick a Sub-Pillar per task on a project's **Tasks** tab, next to Billable. Employees don't enter anything new. Tagging the task rather than the project means one project can still hold both engineering and QA work.
