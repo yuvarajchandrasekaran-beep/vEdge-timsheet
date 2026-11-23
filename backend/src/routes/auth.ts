@@ -54,6 +54,29 @@ const loginSchema = z.object({
   password: z.string().min(1),
 });
 
+// Password sign-in can be turned off (PASSWORD_LOGIN_ENABLED=false) so a deployment signs people in
+// with Google only. Every account starts with the same default password (routes/users.ts) and there
+// is no way yet to change it, so wherever real people sign in, that one password would open every
+// account (and, inside the Vivid Express container, Expense Reporting too). Unset, it stays on, so
+// local and demo setups sign in with the demo accounts' password as before.
+function passwordLoginEnabled(): boolean {
+  const value = (process.env.PASSWORD_LOGIN_ENABLED ?? "").trim().toLowerCase();
+  return !["false", "0", "off", "no"].includes(value);
+}
+
+/**
+ * @swagger
+ * /auth/options:
+ *   get:
+ *     summary: Which sign-in methods this server accepts (public; the sign-in page reads it)
+ *     tags: [Auth]
+ *     responses:
+ *       200: { description: OK }
+ */
+router.get("/options", (_req, res) => {
+  res.json({ passwordLogin: passwordLoginEnabled() });
+});
+
 /**
  * @swagger
  * /auth/login:
@@ -65,10 +88,12 @@ const loginSchema = z.object({
  *     responses:
  *       200: { description: OK }
  *       401: { description: Invalid credentials }
+ *       403: { description: Password sign-in is turned off on this server }
  */
 router.post(
   "/login",
   asyncHandler(async (req, res) => {
+    if (!passwordLoginEnabled()) throw new ApiError(403, "Password sign-in is turned off. Sign in with Google.");
     const { email, password } = loginSchema.parse(req.body);
     const user = await findUserWithRelations({ email: email.toLowerCase() });
     if (!user || user.status !== "ACTIVE") throw ApiError.unauthorized("Invalid email or password");

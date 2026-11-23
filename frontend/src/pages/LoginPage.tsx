@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../hooks/useAuth";
-import { getApiErrorMessage } from "../api/client";
+import { apiClient, getApiErrorMessage } from "../api/client";
 import { Spinner } from "../components/common/Spinner";
 import { GoogleSignInButton } from "../components/auth/GoogleSignInButton";
 
@@ -20,6 +21,16 @@ export default function LoginPage() {
   // everyday path — collapsed by default so it doesn't read as a second,
   // equally-valid option next to the Google button.
   const [showPasswordForm, setShowPasswordForm] = useState(!GOOGLE_CLIENT_ID);
+  // Whether the server takes passwords at all (its PASSWORD_LOGIN_ENABLED; off in production, which
+  // signs in with Google only). Nothing password-related shows until it answers. A server too old to
+  // answer takes passwords, as before. The server refuses a password it has turned off either way.
+  const optionsQuery = useQuery({
+    queryKey: ["auth", "options"],
+    queryFn: async () => (await apiClient.get<{ passwordLogin: boolean }>("/auth/options")).data,
+    staleTime: Infinity,
+    retry: false,
+  });
+  const passwordLogin = optionsQuery.isError || optionsQuery.data?.passwordLogin === true;
 
   if (isAuthenticated) {
     const from = (location.state as { from?: Location })?.from?.pathname ?? "/launcher";
@@ -74,7 +85,7 @@ export default function LoginPage() {
           </div>
         )}
 
-        {GOOGLE_CLIENT_ID && !showPasswordForm && (
+        {passwordLogin && GOOGLE_CLIENT_ID && !showPasswordForm && (
           <button
             type="button"
             onClick={() => setShowPasswordForm(true)}
@@ -84,7 +95,7 @@ export default function LoginPage() {
           </button>
         )}
 
-        {showPasswordForm && (
+        {passwordLogin && showPasswordForm && (
           <form onSubmit={handleSubmit} className="space-y-4">
             {GOOGLE_CLIENT_ID && (
               <div className="flex items-center gap-3">

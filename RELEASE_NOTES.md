@@ -6,6 +6,12 @@ All notable changes to TimeSync are recorded here, newest first.
 
 ---
 
+## v1.7.2 — 2026-11-23
+
+**Security: password sign-in can be turned off.** Every new account starts with the same default password, and there's no way yet to change it, so anyone who knew it could sign in as anyone. The backend setting `PASSWORD_LOGIN_ENABLED=false` now refuses password sign-in, and the login page hides its "use your password instead" link. Production runs with it off, so everyone signs in with their Google account. Local and demo setups are unchanged. Needed before Expense Reporting goes live behind TimeSync's sign-in (the Vivid Express container).
+
+---
+
 ## v1.7.1 — 2026-11-19
 
 **Fix:** Pillar and Sub-Pillar were only visible in the Monthly and Fortnight timesheets. The **Columns** button now appears in the Weekly and Daily views too — as columns next to Project / Task in Weekly, and as labelled values under each task's name in Daily — and one choice covers all four views. Reported while setting up the Paessler project.
