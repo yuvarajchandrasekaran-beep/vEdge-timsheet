@@ -9,12 +9,12 @@ import { upload } from "../middleware/upload";
 import { paginationParams, paginated } from "../utils/pagination";
 import { writeAuditLog } from "../utils/audit";
 import { ROLES } from "../constants/enums";
+import { DEFAULT_PASSWORD } from "../constants/auth";
 import { buildTemplateWorkbook, readFirstSheetRows } from "../services/excel";
 import { validateUserRows, UserImportRow } from "../services/userImport";
 import { ensureDefaultProject, enrollInDefaultProject } from "../services/defaultProject";
 
 const router = Router();
-const DEFAULT_PASSWORD = "Password123!";
 
 function serializeUser(u: any) {
   return {
