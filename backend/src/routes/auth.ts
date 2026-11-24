@@ -7,6 +7,7 @@ import { asyncHandler } from "../utils/asyncHandler";
 import { ApiError } from "../utils/errors";
 import { requireAuth, requireRole, signToken, AuthUser } from "../middleware/auth";
 import { ROLES, RoleName } from "../constants/enums";
+import { DEFAULT_PASSWORD } from "../constants/auth";
 import { writeAuditLog } from "../utils/audit";
 
 const router = Router();
@@ -64,6 +65,18 @@ function passwordLoginEnabled(): boolean {
   return !["false", "0", "off", "no"].includes(value);
 }
 
+// With password sign-in off, a few accounts can still sign in with a password: those listed in
+// PASSWORD_LOGIN_ALLOWED_EMAILS (comma-separated), such as a shared administrator account with no
+// Google mailbox. Each must have its own password: the default one is never accepted then.
+function passwordLoginAllowedEmails(): Set<string> {
+  return new Set(
+    (process.env.PASSWORD_LOGIN_ALLOWED_EMAILS ?? "")
+      .split(",")
+      .map((email) => email.trim().toLowerCase())
+      .filter(Boolean)
+  );
+}
+
 /**
  * @swagger
  * /auth/options:
@@ -74,7 +87,8 @@ function passwordLoginEnabled(): boolean {
  *       200: { description: OK }
  */
 router.get("/options", (_req, res) => {
-  res.json({ passwordLogin: passwordLoginEnabled() });
+  // The sign-in page shows its password form when anyone at all may use it.
+  res.json({ passwordLogin: passwordLoginEnabled() || passwordLoginAllowedEmails().size > 0 });
 });
 
 /**
@@ -88,17 +102,25 @@ router.get("/options", (_req, res) => {
  *     responses:
  *       200: { description: OK }
  *       401: { description: Invalid credentials }
- *       403: { description: Password sign-in is turned off on this server }
+ *       403: { description: Password sign-in is turned off for this account, or it still has the default password where that isn't accepted }
  */
 router.post(
   "/login",
   asyncHandler(async (req, res) => {
-    if (!passwordLoginEnabled()) throw new ApiError(403, "Password sign-in is turned off. Sign in with Google.");
     const { email, password } = loginSchema.parse(req.body);
-    const user = await findUserWithRelations({ email: email.toLowerCase() });
+    const address = email.toLowerCase();
+    const restricted = !passwordLoginEnabled();
+    if (restricted && !passwordLoginAllowedEmails().has(address)) {
+      throw new ApiError(403, "Password sign-in is turned off for this account. Sign in with Google.");
+    }
+    const user = await findUserWithRelations({ email: address });
     if (!user || user.status !== "ACTIVE") throw ApiError.unauthorized("Invalid email or password");
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) throw ApiError.unauthorized("Invalid email or password");
+    // Restricted, the shared default password never signs anyone in: anyone could know it.
+    if (restricted && password === DEFAULT_PASSWORD) {
+      throw new ApiError(403, "This account still has the default password, which isn't accepted here.");
+    }
 
     const accessToken = signToken(toAuthUser(user));
     res.json({ accessToken, user: serializeUser(user) });

@@ -253,6 +253,7 @@ Backend (`backend/.env`, see `backend/.env.example`):
 | `CORS_ORIGIN` | `http://localhost:5173` | Set to the deployed frontend origin in production |
 | `GOOGLE_CLIENT_ID` | unset | Google sign-in; same client ID as the frontend's `VITE_GOOGLE_CLIENT_ID` |
 | `PASSWORD_LOGIN_ENABLED` | on (unset) | **`false` in production**: every account starts with the same default password, so production signs in with Google only. The login page hides its password form when it's off |
+| `PASSWORD_LOGIN_ALLOWED_EMAILS` | none | With password sign-in off, the accounts that may still use a password (comma-separated), e.g. a shared admin account with no Google mailbox. The default password is never accepted for them |
 
 The frontend has no required environment variables in dev — Vite's dev server
 proxies `/api/*` to `http://localhost:4000` (see `frontend/vite.config.ts`).

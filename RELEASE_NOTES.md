@@ -6,6 +6,12 @@ All notable changes to TimeSync are recorded here, newest first.
 
 ---
 
+## v1.7.3 — 2026-11-24
+
+**New: exceptions to Google-only sign-in.** With password sign-in off, the accounts listed in `PASSWORD_LOGIN_ALLOWED_EMAILS` can still sign in with a password, for example a shared administrator account with no Google mailbox. The login page shows its password form again when any account may use it. The shared default password is never accepted for these accounts, so listing one doesn't reopen it to anyone who knows that password. Everyone else still signs in with Google.
+
+---
+
 ## v1.7.2 — 2026-11-23
 
 **Security: password sign-in can be turned off.** Every new account starts with the same default password, and there's no way yet to change it, so anyone who knew it could sign in as anyone. The backend setting `PASSWORD_LOGIN_ENABLED=false` now refuses password sign-in, and the login page hides its "use your password instead" link. Production runs with it off, so everyone signs in with their Google account. Local and demo setups are unchanged. Needed before Expense Reporting goes live behind TimeSync's sign-in (the Vivid Express container).
